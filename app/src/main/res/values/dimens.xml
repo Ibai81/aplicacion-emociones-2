@@ -1,0 +1,16 @@
+<resources>
+    <!-- Tamaño base de botón -->
+    <dimen name="btn_base_w">120dp</dimen>
+    <dimen name="btn_base_h">44dp</dimen>
+
+    <!-- Disponibles: 2/3 del tamaño base -->
+    <dimen name="btn_avail_w">80dp</dimen>   <!-- ~120 * 0.66 -->
+    <dimen name="btn_avail_h">30dp</dimen>   <!-- ~44 * 0.66 -->
+
+    <!-- Seleccionadas: MISMA anchura base, DOBLE altura -->
+    <dimen name="btn_sel_w">120dp</dimen>
+    <dimen name="btn_sel_h">88dp</dimen>     <!-- 44 * 2 -->
+
+    <dimen name="btn_gap">8dp</dimen>
+    <dimen name="screen_padding">8dp</dimen>
+</resources>
