@@ -1,1 +1,7 @@
 // Intencionadamente vacío
+plugins {
+    // OJO: tu versión tiene pinta de typo. "8.12.0" no existe.
+    // Usa una versión real de AGP 8.x, por ejemplo:
+    id "com.android.application" version "8.2.2" apply false
+    id "org.jetbrains.kotlin.android" version "1.9.24" apply false
+}
