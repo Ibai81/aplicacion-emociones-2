@@ -1,20 +1,9 @@
 pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-    plugins {
-        id "com.android.application" version '8.12.0'
-        id "org.jetbrains.kotlin.android" version "1.9.24"
-    }
+    repositories { gradlePluginPortal(); google(); mavenCentral() }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-    }
+    repositories { google(); mavenCentral() }
 }
 rootProject.name = "EmotionApp"
 include(":app")

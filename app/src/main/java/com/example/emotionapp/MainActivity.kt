@@ -21,19 +21,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import com.example.emotionapp.ui.configuracion.SettingsScreen
 import com.example.emotionapp.ui.emociones.EmotionScreen
+import com.example.emotionapp.ui.audio.VoiceLogScreen
+import com.example.emotionapp.ui.gestor.GestorScreen
+import com.example.emotionapp.ui.info.InfoScreen   // ← NUEVO
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import androidx.core.view.WindowCompat
 
-/* ===== Modelo base accesible desde las pantallas ===== */
-
-data class EmotionDef(
-    val key: String,
-    val label: String,
-    val color: Color
-)
-
-// Paleta por defecto
+/* ===== Modelo base ===== */
+data class EmotionDef(val key: String, val label: String, val color: Color)
 val defaultEmotionPalette = listOf(
     EmotionDef("miedo", "Miedo", Color(0xFFEF5350)),
     EmotionDef("ira", "Ira", Color(0xFFD81B60)),
@@ -47,8 +43,7 @@ val defaultEmotionPalette = listOf(
     EmotionDef("alegria", "Alegría", Color(0xFFFDD835))
 )
 
-/* ===== Theme sencillo con color primario configurable ===== */
-
+/* ===== Theme ===== */
 @Composable
 private fun AppTheme(primary: Color, content: @Composable () -> Unit) {
     val base = lightColorScheme()
@@ -62,25 +57,19 @@ private fun AppTheme(primary: Color, content: @Composable () -> Unit) {
 }
 
 /* ===== Activity ===== */
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val context = LocalContext.current
-
-            // Estado persistente: color primario y colores por emoción
             var primaryColor by remember { mutableStateOf(loadPrimaryColor(context)) }
             var emotionColors by remember { mutableStateOf(loadEmotionColors(context)) }
 
             AppTheme(primary = primaryColor) {
-                ApplySystemBars(primaryColor)   // <- añade esta línea
+                ApplySystemBars(primaryColor)
                 AppRoot(
                     primaryColor = primaryColor,
-                    onPrimaryChange = { c ->
-                        primaryColor = c
-                        savePrimaryColor(context, c)
-                    },
+                    onPrimaryChange = { c -> primaryColor = c; savePrimaryColor(context, c) },
                     emotionColors = emotionColors,
                     onEmotionColorChange = { key, c ->
                         emotionColors = emotionColors.toMutableMap().apply { put(key, c) }
@@ -96,9 +85,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/* ===== Tabs: Emociones | Configuración ===== */
-
-private enum class Screen { Emociones, Configuracion }
+/* ===== Tabs: Emociones | Audio | Gestor | Configuración | Info ===== */
+private enum class Screen { Emociones, Audio, Gestor, Configuracion, Info }
 
 @Composable
 private fun AppRoot(
@@ -109,8 +97,9 @@ private fun AppRoot(
     onResetAllEmotionColors: () -> Unit
 ) {
     var current by rememberSaveable { mutableStateOf(Screen.Emociones) }
-    val tabs = listOf(Screen.Emociones, Screen.Configuracion)
+    val tabs = listOf(Screen.Emociones, Screen.Audio, Screen.Gestor, Screen.Configuracion, Screen.Info) // ← añade Info
     val selectedIndex = tabs.indexOf(current)
+
     Column {
         TabRow(
             selectedTabIndex = selectedIndex,
@@ -127,36 +116,46 @@ private fun AppRoot(
                 Tab(
                     selected = current == scr,
                     onClick = { current = scr },
-                    text = { Text(if (scr == Screen.Emociones) "Emociones" else "Configuración") }
+                    text = {
+                        Text(
+                            when (scr) {
+                                Screen.Emociones -> "Emociones"
+                                Screen.Audio -> "Audio"
+                                Screen.Gestor -> "Gestor"
+                                Screen.Configuracion -> "Configuración"
+                                Screen.Info -> "Info"              // ← NUEVO
+                            }
+                        )
+                    }
                 )
             }
         }
 
         when (current) {
             Screen.Emociones -> EmotionScreen(
-                // color por emoción: primero preferencia, si no, por defecto
                 getEmotionColor = { key ->
                     emotionColors[key]
                         ?: defaultEmotionPalette.firstOrNull { it.key == key }?.color
                         ?: Color(0xFF1F2937)
                 }
             )
+            Screen.Audio -> VoiceLogScreen()
+            Screen.Gestor -> GestorScreen()
             Screen.Configuracion -> SettingsScreen(
                 primaryColor = primaryColor,
                 onPickPrimary = onPrimaryChange,
                 palette = presetPalette(),
-                // bloque de colores por emoción
                 defaultPalette = defaultEmotionPalette,
                 emotionColors = emotionColors,
                 onPickForEmotion = onEmotionColorChange,
                 onResetAll = onResetAllEmotionColors
             )
+            Screen.Info -> InfoScreen() // ← NUEVO
         }
     }
 }
 
-/* ===== Persistencia de preferencias UI (color app + colores emoción) ===== */
-
+/* ===== Preferencias UI ===== */
 private const val PREFS_UI = "ui_prefs"
 private const val KEY_PRIMARY_COLOR = "primary_color_argb"
 private const val KEY_EMOTION_COLORS = "emotion_colors_json"
@@ -168,7 +167,7 @@ private fun savePrimaryColor(context: android.content.Context, color: Color) {
 
 private fun loadPrimaryColor(context: android.content.Context): Color {
     val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
-    val def = Color(0xFF6A1B9A) // morado por defecto
+    val def = Color(0xFF6A1B9A)
     val argb = prefs.getInt(KEY_PRIMARY_COLOR, def.toArgb())
     return Color(argb)
 }
@@ -176,7 +175,7 @@ private fun loadPrimaryColor(context: android.content.Context): Color {
 private fun saveEmotionColors(context: android.content.Context, map: Map<String, Color>) {
     val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
     val gson = Gson()
-    val plain = map.mapValues { it.value.toArgb() } // key -> Int
+    val plain = map.mapValues { it.value.toArgb() }
     prefs.edit().putString(KEY_EMOTION_COLORS, gson.toJson(plain)).apply()
 }
 
@@ -187,17 +186,15 @@ private fun loadEmotionColors(context: android.content.Context): Map<String, Col
     val loaded: Map<String, Int> = Gson().fromJson(json, type)
     return loaded.mapValues { Color(it.value) }
 }
+
 @Composable
 private fun ApplySystemBars(color: Color) {
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            // Colores de barras
             window.statusBarColor = color.toArgb()
             window.navigationBarColor = color.toArgb()
-
-            // Iconos oscuros o claros según el color de fondo
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             val useDarkIcons = color.luminance() > 0.5f
             controller.isAppearanceLightStatusBars = useDarkIcons
@@ -206,22 +203,9 @@ private fun ApplySystemBars(color: Color) {
     }
 }
 
-
-/* ===== Paleta sugerida para Configuración ===== */
-
 fun presetPalette(): List<Color> = listOf(
-    Color(0xFF6A1B9A), // morado (por defecto)
-    Color(0xFF7C4DFF),
-    Color(0xFF512DA8),
-    Color(0xFF3949AB),
-    Color(0xFF1E88E5),
-    Color(0xFF00ACC1),
-    Color(0xFF43A047),
-    Color(0xFF8BC34A),
-    Color(0xFFFFC107),
-    Color(0xFFFF9800),
-    Color(0xFFF4511E),
-    Color(0xFFE91E63),
-    Color(0xFF546E7A),
-    Color(0xFF1F2937)
+    Color(0xFF6A1B9A), Color(0xFF7C4DFF), Color(0xFF512DA8), Color(0xFF3949AB),
+    Color(0xFF1E88E5), Color(0xFF00ACC1), Color(0xFF43A047), Color(0xFF8BC34A),
+    Color(0xFFFFC107), Color(0xFFFF9800), Color(0xFFF4511E), Color(0xFFE91E63),
+    Color(0xFF546E7A), Color(0xFF1F2937)
 )
