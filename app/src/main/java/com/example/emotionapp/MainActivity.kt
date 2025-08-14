@@ -4,29 +4,26 @@ import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.view.WindowCompat
+import com.example.emotionapp.ui.audio.VoiceLogScreen
 import com.example.emotionapp.ui.configuracion.SettingsScreen
 import com.example.emotionapp.ui.emociones.EmotionScreen
-import com.example.emotionapp.ui.audio.VoiceLogScreen
 import com.example.emotionapp.ui.gestor.GestorScreen
-import com.example.emotionapp.ui.info.InfoScreen   // ← NUEVO
+import com.example.emotionapp.ui.info.InfoScreen
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import androidx.core.view.WindowCompat
 
 /* ===== Modelo base ===== */
 data class EmotionDef(val key: String, val label: String, val color: Color)
@@ -124,7 +121,9 @@ private fun AppRoot(
                                 Screen.Gestor -> "Gestor"
                                 Screen.Configuracion -> "Configuración"
                                 Screen.Info -> "Info"              // ← NUEVO
-                            }
+                            },
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 )

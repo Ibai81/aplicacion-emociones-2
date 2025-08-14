@@ -4,12 +4,10 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -22,14 +20,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.emotionapp.EmotionDef
-import com.example.emotionapp.defaultEmotionPalette
 import com.example.emotionapp.data.*
+
+/* === Mover enum a top-level (fuera del @Composable) === */
+enum class EditTarget { PLACE, PERSON, SENSATION }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -45,20 +44,35 @@ fun SettingsScreen(
     val context = LocalContext.current
     var editingEmotion by remember { mutableStateOf<EmotionDef?>(null) }
 
-    // Estado editor Lugares/Personas
+    // ===== Estado editor Lugares / Personas / Sensaciones =====
     var places by remember { mutableStateOf(loadPlaceSuggestions(context).toMutableList()) }
     var people by remember { mutableStateOf(loadPeopleSuggestions(context).toMutableList()) }
+    var sensations by remember { mutableStateOf(loadSensationsSuggestions(context).toMutableList()) }
+
     var newPlace by remember { mutableStateOf("") }
     var newPerson by remember { mutableStateOf("") }
+    var newSensation by remember { mutableStateOf("") }
 
-    // Diálogo de edición compacta
+    // Diálogo de edición (compartido para los 3 tipos)
     var showEdit by remember { mutableStateOf(false) }
-    var editIsPlace by remember { mutableStateOf(true) }
+    var editTarget by remember { mutableStateOf(EditTarget.PLACE) }
     var editIndex by remember { mutableStateOf(-1) }
     var editText by remember { mutableStateOf("") }
 
-    fun openEdit(isPlace: Boolean, index: Int, value: String) {
-        editIsPlace = isPlace
+    fun openEditPlace(index: Int, value: String) {
+        editTarget = EditTarget.PLACE
+        editIndex = index
+        editText = value
+        showEdit = true
+    }
+    fun openEditPerson(index: Int, value: String) {
+        editTarget = EditTarget.PERSON
+        editIndex = index
+        editText = value
+        showEdit = true
+    }
+    fun openEditSensation(index: Int, value: String) {
+        editTarget = EditTarget.SENSATION
         editIndex = index
         editText = value
         showEdit = true
@@ -66,43 +80,77 @@ fun SettingsScreen(
 
     fun saveEdit() {
         val txt = editText.trim()
-        if (txt.isEmpty()) return
-        if (editIsPlace) {
-            val list = places.toMutableList()
-            list[editIndex] = txt
-            places = list
-            replacePlaceSuggestions(context, places)
-            Toast.makeText(context, "Lugar guardado", Toast.LENGTH_SHORT).show()
-        } else {
-            val list = people.toMutableList()
-            list[editIndex] = txt
-            people = list
-            replacePeopleSuggestions(context, people)
-            Toast.makeText(context, "Persona guardada", Toast.LENGTH_SHORT).show()
+        if (txt.isEmpty() || editIndex !in 0..Int.MAX_VALUE) return
+        when (editTarget) {
+            EditTarget.PLACE -> {
+                val list = places.toMutableList()
+                if (editIndex in list.indices) {
+                    list[editIndex] = txt
+                    places = list
+                    replacePlaceSuggestions(context, places)
+                    Toast.makeText(context, "Lugar guardado", Toast.LENGTH_SHORT).show()
+                }
+            }
+            EditTarget.PERSON -> {
+                val list = people.toMutableList()
+                if (editIndex in list.indices) {
+                    list[editIndex] = txt
+                    people = list
+                    replacePeopleSuggestions(context, people)
+                    Toast.makeText(context, "Persona guardada", Toast.LENGTH_SHORT).show()
+                }
+            }
+            EditTarget.SENSATION -> {
+                val list = sensations.toMutableList()
+                if (editIndex in list.indices) {
+                    list[editIndex] = txt
+                    sensations = list
+                    replaceSensationsSuggestions(context, sensations)
+                    Toast.makeText(context, "Sensación guardada", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
         showEdit = false
     }
 
     fun deleteEdit() {
-        if (editIsPlace) {
-            val list = places.toMutableList()
-            if (editIndex in list.indices) {
-                list.removeAt(editIndex)
-                places = list
-                replacePlaceSuggestions(context, places)
-                Toast.makeText(context, "Lugar eliminado", Toast.LENGTH_SHORT).show()
+        when (editTarget) {
+            EditTarget.PLACE -> {
+                val list = places.toMutableList()
+                if (editIndex in list.indices) {
+                    list.removeAt(editIndex)
+                    places = list
+                    replacePlaceSuggestions(context, places)
+                    Toast.makeText(context, "Lugar eliminado", Toast.LENGTH_SHORT).show()
+                }
             }
-        } else {
-            val list = people.toMutableList()
-            if (editIndex in list.indices) {
-                list.removeAt(editIndex)
-                people = list
-                replacePeopleSuggestions(context, people)
-                Toast.makeText(context, "Persona eliminada", Toast.LENGTH_SHORT).show()
+            EditTarget.PERSON -> {
+                val list = people.toMutableList()
+                if (editIndex in list.indices) {
+                    list.removeAt(editIndex)
+                    people = list
+                    replacePeopleSuggestions(context, people)
+                    Toast.makeText(context, "Persona eliminada", Toast.LENGTH_SHORT).show()
+                }
+            }
+            EditTarget.SENSATION -> {
+                val list = sensations.toMutableList()
+                if (editIndex in list.indices) {
+                    list.removeAt(editIndex)
+                    sensations = list
+                    replaceSensationsSuggestions(context, sensations)
+                    Toast.makeText(context, "Sensación eliminada", Toast.LENGTH_SHORT).show()
+                }
             }
         }
         showEdit = false
     }
+
+    fun String.splitClean(): List<String> =
+        this.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase() }
 
     LazyColumn(
         modifier = Modifier
@@ -114,26 +162,23 @@ fun SettingsScreen(
             Text("Configuración", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         }
 
-        /* ----- Color general de la aplicación ----- */
+        /* ----- Color de la aplicación ----- */
         item {
             Text("Color de la aplicación", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             FlowColorGrid(colors = palette, selected = primaryColor, onPick = onPickPrimary)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Se usa como color primario (botones, resaltados…).",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
+            Spacer(Modifier.height(6.dp))
+            Text("Elige el color principal de la interfaz.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         item { Divider() }
 
-        /* ====== Lugares (compacto con botones) ====== */
+        /* ====== Lugares ====== */
         item { Text("Lugares guardados", style = MaterialTheme.typography.titleMedium) }
         item {
             CompactTagGrid(
                 items = places,
-                onTap = { idx, value -> openEdit(true, idx, value) }
+                onTap = { idx, value -> openEditPlace(idx, value) }
             )
         }
         item {
@@ -146,9 +191,12 @@ fun SettingsScreen(
                     singleLine = true
                 )
                 Button(onClick = {
-                    val v = newPlace.trim()
-                    if (v.isNotEmpty() && places.none { it.equals(v, ignoreCase = true) }) {
-                        places = (listOf(v) + places).toMutableList()
+                    val items = newPlace.splitClean()
+                    if (items.isNotEmpty()) {
+                        val base = places.toMutableList()
+                        val seen = base.map { it.lowercase() }.toMutableSet()
+                        for (v in items) if (seen.add(v.lowercase())) base.add(0, v)
+                        places = base
                         replacePlaceSuggestions(context, places)
                         newPlace = ""
                     }
@@ -158,12 +206,12 @@ fun SettingsScreen(
 
         item { Divider() }
 
-        /* ====== Personas (compacto con botones) ====== */
+        /* ====== Personas ====== */
         item { Text("Personas guardadas", style = MaterialTheme.typography.titleMedium) }
         item {
             CompactTagGrid(
                 items = people,
-                onTap = { idx, value -> openEdit(false, idx, value) }
+                onTap = { idx, value -> openEditPerson(idx, value) }
             )
         }
         item {
@@ -176,11 +224,47 @@ fun SettingsScreen(
                     singleLine = true
                 )
                 Button(onClick = {
-                    val v = newPerson.trim()
-                    if (v.isNotEmpty() && people.none { it.equals(v, ignoreCase = true) }) {
-                        people = (listOf(v) + people).toMutableList()
+                    val items = newPerson.splitClean()
+                    if (items.isNotEmpty()) {
+                        val base = people.toMutableList()
+                        val seen = base.map { it.lowercase() }.toMutableSet()
+                        for (v in items) if (seen.add(v.lowercase())) base.add(0, v)
+                        people = base
                         replacePeopleSuggestions(context, people)
                         newPerson = ""
+                    }
+                }) { Text("Añadir") }
+            }
+        }
+
+        item { Divider() }
+
+        /* ====== Sensaciones corporales ====== */
+        item { Text("Sensaciones corporales guardadas", style = MaterialTheme.typography.titleMedium) }
+        item {
+            CompactTagGrid(
+                items = sensations,
+                onTap = { idx, value -> openEditSensation(idx, value) }
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newSensation,
+                    onValueChange = { newSensation = it },
+                    label = { Text("Añadir sensación (puedes separar con comas)") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Button(onClick = {
+                    val items = newSensation.splitClean()
+                    if (items.isNotEmpty()) {
+                        val base = sensations.toMutableList()
+                        val seen = base.map { it.lowercase() }.toMutableSet()
+                        for (v in items) if (seen.add(v.lowercase())) base.add(0, v)
+                        sensations = base
+                        replaceSensationsSuggestions(context, sensations)
+                        newSensation = ""
                     }
                 }) { Text("Añadir") }
             }
@@ -196,45 +280,39 @@ fun SettingsScreen(
                 defaultPalette.forEach { emo ->
                     val current = emotionColors[emo.key] ?: emo.color
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { editingEmotion = emo }
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(emo.label, fontWeight = FontWeight.SemiBold)
+                            Text("Toca para elegir color", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(current)
-                                .border(1.dp, Color.Black.copy(alpha = 0.08f), CircleShape)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onLongPress = {
-                                            onPickForEmotion(emo.key, emo.color)
-                                            Toast.makeText(context, "Restaurado: ${emo.label}", Toast.LENGTH_SHORT).show()
-                                        },
-                                        onTap = { /* abrir diálogo abajo */ editingEmotion = emo }
-                                    )
-                                }
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                         )
-                        Text(emo.label, modifier = Modifier.weight(1f))
-                        Text(
-                            text = "#%08X".format(current.toArgb()),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
-                        TextButton(onClick = { editingEmotion = emo }) { Text("Cambiar") }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(
-                        onClick = onResetAll,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { onResetAll() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) { Text("Restaurar todos") }
                 }
             }
         }
     }
 
-    // Diálogo de edición de color por emoción
+    // ===== Diálogo de edición de color por emoción =====
     val emo = editingEmotion
     if (emo != null) {
         AlertDialog(
@@ -251,11 +329,16 @@ fun SettingsScreen(
         )
     }
 
-    // Diálogo compacto de edición (texto arriba, Eliminar izquierda, Guardar derecha)
+    // ===== Diálogo de edición de texto (lugar/persona/sensación) =====
     if (showEdit) {
+        val title = when (editTarget) {
+            EditTarget.PLACE -> "Editar lugar"
+            EditTarget.PERSON -> "Editar persona"
+            EditTarget.SENSATION -> "Editar sensación"
+        }
         AlertDialog(
             onDismissRequest = { showEdit = false },
-            title = { Text(if (editIsPlace) "Editar lugar" else "Editar persona") },
+            title = { Text(title) },
             text = {
                 OutlinedTextField(
                     value = editText,
@@ -278,7 +361,8 @@ fun SettingsScreen(
     }
 }
 
-/* ---------- Paleta reutilizable ---------- */
+/* =================== UI helpers =================== */
+
 @Composable
 private fun FlowColorGrid(
     colors: List<Color>,
@@ -302,7 +386,7 @@ private fun FlowColorGrid(
                     .background(c)
                     .border(
                         width = if (isSel) 3.dp else 1.dp,
-                        color = if (isSel) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.08f),
+                        color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                         shape = CircleShape
                     )
                     .clickable { onPick(c) }
@@ -311,7 +395,6 @@ private fun FlowColorGrid(
     }
 }
 
-/* ---------- Grid compacto de botones para tags ---------- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CompactTagGrid(
