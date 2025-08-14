@@ -10,41 +10,64 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.core.net.toUri
 import com.example.emotionapp.data.saveAudioEntryFiles
+import com.example.emotionapp.data.addPlaceSuggestion
+import com.example.emotionapp.data.loadPlaceSuggestions
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class) // por si FilterChip está marcado experimental en tu versión
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun VoiceLogScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var audioUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var place by remember { mutableStateOf(TextFieldValue("")) }
     var description by remember { mutableStateOf(TextFieldValue("")) }
     var generalIntensity by remember { mutableStateOf(3) }
 
-    // ---- NUEVO: engine AudioRecord + AGC + boost ----
+    // Motor de grabación
     val engine = remember { AudioRecorderEngine(context) }
     var isRecording by remember { mutableStateOf(false) }
-    var boostDb by remember { mutableStateOf(6) } // 0 / 6 / 9
+
+    // Ganancia (0 / 6 / 9 / 12 / 18). Por defecto 9 dB.
+    var boostDb by remember { mutableStateOf(9) }
     var currentOutputFile by remember { mutableStateOf<File?>(null) }
 
-    /* ---------- Funciones locales: declarar ANTES de usarlas ---------- */
+    // Scroll manual sin bringIntoView
+    val scroll = rememberScrollState()
+    var placeTop by remember { mutableStateOf(0) }
+    var descriptionTop by remember { mutableStateOf(0) }
+
+    // Sugerencias de lugar (como en Emociones)
+    var placeSugg by remember { mutableStateOf(loadPlaceSuggestions(context)) }
+
     fun startRecording() {
         try {
             val f = File(
@@ -64,45 +87,43 @@ fun VoiceLogScreen() {
     }
 
     fun stopRecording() {
-        try { engine.stop() } catch (_: Exception) {}
+        runCatching { engine.stop() }
         isRecording = false
-        // audioUri ya apunta al archivo final
     }
 
     DisposableEffect(Unit) { onDispose { if (isRecording) stopRecording() } }
 
-    /* ---------- Permiso micrófono (ahora ya puede llamar a startRecording()) ---------- */
+    // Permiso micrófono
     val micPermission = Manifest.permission.RECORD_AUDIO
     val hasMicPermission: () -> Boolean =
         { ContextCompat.checkSelfPermission(context, micPermission) == PermissionChecker.PERMISSION_GRANTED }
 
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) startRecording()
-        else Toast.makeText(context, "Permiso de micrófono denegado.", Toast.LENGTH_SHORT).show()
-    }
+    ) { granted -> if (granted) startRecording() else Toast.makeText(context, "Permiso de micrófono denegado.", Toast.LENGTH_SHORT).show() }
 
     /* ---------- UI ---------- */
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scroll)
+            .imePadding()
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Registro de audio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
         GuideCard()
 
-        // BOTONES: Guardar (izq) / Grabar-Detener (dcha)
+        // Guardar / Grabar-Detener
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Button(
                 onClick = {
                     if (isRecording) {
-                        Toast.makeText(context, "Detén la grabación antes de guardar.", Toast.LENGTH_SHORT).show()
-                        return@Button
+                        Toast.makeText(context, "Detén la grabación antes de guardar.", Toast.LENGTH_SHORT).show(); return@Button
                     }
                     val src = audioUri ?: run {
-                        Toast.makeText(context, "Aún no hay audio. Graba primero.", Toast.LENGTH_SHORT).show()
-                        return@Button
+                        Toast.makeText(context, "Aún no hay audio. Graba primero.", Toast.LENGTH_SHORT).show(); return@Button
                     }
                     val lugar = place.text.ifBlank { "sin lugar" }
                     runCatching {
@@ -114,8 +135,12 @@ fun VoiceLogScreen() {
                             place = lugar
                         )
                     }.onSuccess {
+                        // Guardar lugar en sugerencias y refrescar
+                        addPlaceSuggestion(context, lugar)
+                        placeSugg = loadPlaceSuggestions(context)
+
                         Toast.makeText(context, "Audio guardado en gestor.", Toast.LENGTH_LONG).show()
-                        // reset UI
+                        // reset
                         audioUri = null
                         place = TextFieldValue("")
                         description = TextFieldValue("")
@@ -129,44 +154,91 @@ fun VoiceLogScreen() {
             ) { Text("Guardar") }
 
             Button(onClick = {
-                if (isRecording) {
-                    stopRecording()
-                } else {
-                    if (hasMicPermission()) startRecording() else requestMicPermission.launch(micPermission)
-                }
+                if (isRecording) stopRecording()
+                else if (hasMicPermission()) startRecording()
+                else requestMicPermission.launch(micPermission)
             }) { Text(if (isRecording) "Detener" else "Grabar audio") }
         }
 
-        // Selector de Refuerzo (afecta al archivo final)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Selector de Refuerzo (FlowRow -> se parte en varias líneas si no cabe)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Refuerzo grabación:")
-            listOf(0, 6, 9).forEach { db ->
-                FilterChip(
-                    selected = boostDb == db,
-                    onClick = { if (!isRecording) boostDb = db },
-                    label = { Text(if (db == 0) "0 dB" else "+$db dB") },
-                    enabled = !isRecording
-                )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(0, 6, 9, 12, 18).forEach { db ->
+                    FilterChip(
+                        selected = boostDb == db,
+                        onClick = { if (!isRecording) boostDb = db },
+                        label = { Text(if (db == 0) "0 dB" else "+$db dB") },
+                        enabled = !isRecording
+                    )
+                }
             }
         }
 
-        // Info + pre-escucha (desactiva mientras graba)
+        // Info + mini reproductor (solo cuando no está grabando)
         AudioInfo(uri = audioUri, isRecording = isRecording)
         if (audioUri != null && !isRecording) {
             MiniPlayer(source = audioUri!!)
         }
 
-        // Lugar
+        // Lugar: guarda su posición y hace scroll cuando toma foco
         OutlinedTextField(
             value = place, onValueChange = { place = it },
-            label = { Text("Lugar") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+            label = { Text("Lugar") }, singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coords -> placeTop = coords.boundsInParent().top.toInt() }
+                .onFocusChanged { st ->
+                    if (st.isFocused) scope.launch {
+                        val target = (placeTop - 32).coerceAtLeast(0)
+                        scroll.animateScrollTo(target)
+                    }
+                },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { /* foco al siguiente */ })
         )
-        // Descripción
+
+        // Sugerencias de lugar (filtra según lo tecleado y autocompleta al tocar)
+        val typed = place.text.trim()
+        val visible = placeSugg
+            .filter { it.isNotBlank() }
+            .filter { typed.isEmpty() || it.contains(typed, ignoreCase = true) }
+            .take(12)
+        if (visible.isNotEmpty()) {
+            Text("Sugerencias de lugares", style = MaterialTheme.typography.labelLarge)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                visible.forEach { s ->
+                    AssistChip(
+                        onClick = { place = TextFieldValue(s) },
+                        label = { Text(s) }
+                    )
+                }
+            }
+        }
+
+        // Descripción: idem scroll
         OutlinedTextField(
             value = description, onValueChange = { description = it },
-            label = { Text("Descripción (opcional)") }, minLines = 3, modifier = Modifier.fillMaxWidth()
+            label = { Text("Descripción (opcional)") }, minLines = 3,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coords -> descriptionTop = coords.boundsInParent().top.toInt() }
+                .onFocusChanged { st ->
+                    if (st.isFocused) scope.launch {
+                        val target = (descriptionTop - 32).coerceAtLeast(0)
+                        scroll.animateScrollTo(target)
+                    }
+                }
         )
-        // Intensidad
+
+        // Intensidad general
         Text("Intensidad general", style = MaterialTheme.typography.titleMedium)
         NumberPickerRow(selected = generalIntensity) { generalIntensity = it }
     }
@@ -228,7 +300,8 @@ fun VoiceLogScreen() {
     val can = prepared && player != null && duration > 0
 
     Column(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)

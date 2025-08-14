@@ -23,6 +23,7 @@ import com.example.emotionapp.ui.configuracion.SettingsScreen
 import com.example.emotionapp.ui.emociones.EmotionScreen
 import com.example.emotionapp.ui.audio.VoiceLogScreen
 import com.example.emotionapp.ui.gestor.GestorScreen
+import com.example.emotionapp.ui.info.InfoScreen   // ← NUEVO
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import androidx.core.view.WindowCompat
@@ -84,8 +85,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/* ===== Tabs: Emociones | Audio | Gestor | Configuración ===== */
-private enum class Screen { Emociones, Audio, Gestor, Configuracion }
+/* ===== Tabs: Emociones | Audio | Gestor | Configuración | Info ===== */
+private enum class Screen { Emociones, Audio, Gestor, Configuracion, Info }
 
 @Composable
 private fun AppRoot(
@@ -96,8 +97,9 @@ private fun AppRoot(
     onResetAllEmotionColors: () -> Unit
 ) {
     var current by rememberSaveable { mutableStateOf(Screen.Emociones) }
-    val tabs = listOf(Screen.Emociones, Screen.Audio, Screen.Gestor, Screen.Configuracion)
+    val tabs = listOf(Screen.Emociones, Screen.Audio, Screen.Gestor, Screen.Configuracion, Screen.Info) // ← añade Info
     val selectedIndex = tabs.indexOf(current)
+
     Column {
         TabRow(
             selectedTabIndex = selectedIndex,
@@ -121,6 +123,7 @@ private fun AppRoot(
                                 Screen.Audio -> "Audio"
                                 Screen.Gestor -> "Gestor"
                                 Screen.Configuracion -> "Configuración"
+                                Screen.Info -> "Info"              // ← NUEVO
                             }
                         )
                     }
@@ -147,6 +150,7 @@ private fun AppRoot(
                 onPickForEmotion = onEmotionColorChange,
                 onResetAll = onResetAllEmotionColors
             )
+            Screen.Info -> InfoScreen() // ← NUEVO
         }
     }
 }

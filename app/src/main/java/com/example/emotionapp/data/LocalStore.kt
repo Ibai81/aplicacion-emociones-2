@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import com.example.emotionapp.ui.emociones.EmotionEntry
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -126,3 +127,89 @@ fun loadAudioMeta(context: Context, baseName: String): AudioMeta? {
 
 /** Uri para File local */
 fun fileUri(file: File): Uri = file.toUri()
+
+/* ===================== SUGERENCIAS (LUGARES / PERSONAS) ===================== */
+
+private const val PREFS_SUGG = "suggest_prefs"
+private const val KEY_PLACES = "places_json"
+private const val KEY_PEOPLE = "people_json"
+private const val MAX_SUGGESTIONS = 30
+
+private fun prefs(context: Context) =
+    context.getSharedPreferences(PREFS_SUGG, Context.MODE_PRIVATE)
+
+private fun readStringList(context: Context, key: String): MutableList<String> {
+    val json = prefs(context).getString(key, null) ?: return mutableListOf()
+    val type = object : TypeToken<List<String>>() {}.type
+    return (Gson().fromJson<List<String>>(json, type) ?: emptyList()).toMutableList()
+}
+
+private fun writeStringList(context: Context, key: String, list: List<String>) {
+    prefs(context).edit().putString(key, Gson().toJson(list)).apply()
+}
+
+private fun normalize(s: String) = s.trim()
+
+private fun sanitizeListKeepOrder(list: List<String>): List<String> {
+    val out = mutableListOf<String>()
+    val seen = mutableSetOf<String>()
+    for (it in list.map(::normalize).filter { it.isNotEmpty() }) {
+        val k = it.lowercase(Locale.getDefault())
+        if (seen.add(k)) out.add(it)
+        if (out.size >= MAX_SUGGESTIONS) break
+    }
+    return out
+}
+
+private fun mergeUniqueCaseInsensitive(base: MutableList<String>, incoming: List<String>) {
+    val seen = mutableSetOf<String>()
+    base.forEach { seen.add(it.lowercase(Locale.getDefault())) }
+    for (item in incoming.map(::normalize).filter { it.isNotEmpty() }) {
+        val key = item.lowercase(Locale.getDefault())
+        if (seen.add(key)) base.add(0, item) // al principio = más reciente
+    }
+    // Dedup conservando el primero (más reciente)
+    val finalSeen = mutableSetOf<String>()
+    val finalList = mutableListOf<String>()
+    for (it in base) {
+        val k = it.lowercase(Locale.getDefault())
+        if (finalSeen.add(k)) finalList.add(it)
+        if (finalList.size >= MAX_SUGGESTIONS) break
+    }
+    base.clear()
+    base.addAll(finalList)
+}
+
+/* --- API pública de sugerencias --- */
+
+fun loadPlaceSuggestions(context: Context): List<String> =
+    readStringList(context, KEY_PLACES)
+
+fun loadPeopleSuggestions(context: Context): List<String> =
+    readStringList(context, KEY_PEOPLE)
+
+fun addPlaceSuggestion(context: Context, place: String) {
+    val list = readStringList(context, KEY_PLACES)
+    mergeUniqueCaseInsensitive(list, listOf(place))
+    writeStringList(context, KEY_PLACES, list)
+}
+
+fun addPeopleSuggestions(context: Context, people: List<String>) {
+    val list = readStringList(context, KEY_PEOPLE)
+    mergeUniqueCaseInsensitive(list, people)
+    writeStringList(context, KEY_PEOPLE, list)
+}
+
+/** Reemplaza la lista completa (para el editor en Configuración) */
+fun replacePlaceSuggestions(context: Context, items: List<String>) {
+    val clean = sanitizeListKeepOrder(items)
+    writeStringList(context, KEY_PLACES, clean)
+}
+
+fun replacePeopleSuggestions(context: Context, items: List<String>) {
+    val clean = sanitizeListKeepOrder(items)
+    writeStringList(context, KEY_PEOPLE, clean)
+}
+
+fun clearPlaceSuggestions(context: Context) = writeStringList(context, KEY_PLACES, emptyList())
+fun clearPeopleSuggestions(context: Context) = writeStringList(context, KEY_PEOPLE, emptyList())

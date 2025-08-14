@@ -1,16 +1,17 @@
 package com.example.emotionapp.ui.emociones
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -18,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,8 +28,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import com.example.emotionapp.EmotionDef
 import com.example.emotionapp.defaultEmotionPalette
 import com.example.emotionapp.data.saveEmotionEntryFile
+import com.example.emotionapp.data.addPeopleSuggestions
+import com.example.emotionapp.data.addPlaceSuggestion
+import com.example.emotionapp.data.loadPeopleSuggestions
+import com.example.emotionapp.data.loadPlaceSuggestions
+import android.content.res.Configuration
+import androidx.compose.ui.input.pointer.pointerInput
 
 /* ===== Modelos ===== */
 data class EmotionItem(val key: String, val label: String, val intensity: Int)
@@ -45,7 +52,7 @@ data class EmotionEntry(
 )
 
 /* ===== Pantalla ===== */
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EmotionScreen(getEmotionColor: (String) -> Color) {
     val context = LocalContext.current
@@ -60,6 +67,10 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     var notes by remember { mutableStateOf(TextFieldValue("")) }
     var situationFacts by remember { mutableStateOf(TextFieldValue("")) }
 
+    // Sugerencias persistentes (lugares/personas)
+    var placeSugg by remember { mutableStateOf(loadPlaceSuggestions(context)) }
+    var peopleSugg by remember { mutableStateOf(loadPeopleSuggestions(context)) }
+
     var editingKey by remember { mutableStateOf<String?>(null) }
     val currentIntensity = editingKey?.let { selected[it] } ?: 3
 
@@ -67,9 +78,14 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     val screenWidthDp = conf.screenWidthDp.dp
     val paddingExterior = 16.dp
     val espacioEntreBotones = 8.dp
-    val botonesPorFila = if (conf.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 6 else 4
-    val buttonWidth = calcularAnchoBoton(screenWidthDp, paddingExterior, espacioEntreBotones, botonesPorFila)
+    val botonesPorFila =
+        if (conf.orientation == Configuration.ORIENTATION_LANDSCAPE) 6 else 4
+    val buttonWidth =
+        calcularAnchoBoton(screenWidthDp, paddingExterior, espacioEntreBotones, botonesPorFila)
     val buttonHeight = 48.dp
+
+    // Scroll para el contenido + padding del teclado
+    val scroll = rememberScrollState()
 
     Scaffold(
         bottomBar = {
@@ -80,8 +96,12 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                     .navigationBarsPadding()
             ) {
                 HorizontalDivider()
-                Text("Seleccionadas", modifier = Modifier.padding(horizontal = paddingExterior, vertical = 8.dp),
-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Seleccionadas",
+                    modifier = Modifier.padding(horizontal = paddingExterior, vertical = 8.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = buttonWidth),
                     modifier = Modifier
@@ -110,90 +130,192 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
             }
         }
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = paddingExterior, vertical = 16.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(scroll)     // ← toda la pantalla hace scroll
+                .imePadding()
+                .padding(horizontal = paddingExterior, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
-                Text("Registra tu entrada", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text("Registra tu entrada", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+
+            // ⬇️ Grid de emociones con ALTURA ACOTADA (clave para evitar el crash)
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = buttonWidth),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(                       // ← le damos límites: no infinito
+                        min = buttonHeight * 2 + 16.dp,
+                        max = buttonHeight * 4 + 32.dp
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(espacioEntreBotones),
+                verticalArrangement = Arrangement.spacedBy(espacioEntreBotones),
+                userScrollEnabled = false           // ← sin scroll interno; scrollea la página
+            ) {
+                items(defaultEmotionPalette) { emo ->
+                    val levelIfSelected = selected[emo.key]
+                    EmotionBarButton(
+                        label = emo.label,
+                        baseColor = getEmotionColor(emo.key),
+                        width = buttonWidth,
+                        height = buttonHeight,
+                        intensityLevel = levelIfSelected,
+                        onTap = {
+                            if (levelIfSelected == null) selected[emo.key] = 3
+                            editingKey = emo.key
+                        },
+                        onLongPress = { if (levelIfSelected != null) selected.remove(emo.key) }
+                    )
+                }
             }
 
-            item {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = buttonWidth),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = buttonHeight * 2 + 16.dp, max = buttonHeight * 4 + 32.dp),
-                    horizontalArrangement = Arrangement.spacedBy(espacioEntreBotones),
-                    verticalArrangement = Arrangement.spacedBy(espacioEntreBotones),
-                    userScrollEnabled = true
-                ) {
-                    items(defaultEmotionPalette) { emo ->
-                        val levelIfSelected = selected[emo.key]
-                        EmotionBarButton(
-                            label = emo.label,
-                            baseColor = getEmotionColor(emo.key),
-                            width = buttonWidth,
-                            height = buttonHeight,
-                            intensityLevel = levelIfSelected,
-                            onTap = {
-                                if (levelIfSelected == null) selected[emo.key] = 3
-                                editingKey = emo.key
-                            },
-                            onLongPress = { if (levelIfSelected != null) selected.remove(emo.key) }
-                        )
+            Text("Intensidad general", style = MaterialTheme.typography.titleMedium)
+            NumberPickerRow(selected = generalIntensity, onSelect = { generalIntensity = it })
+
+            /* --------- Lugar + sugerencias --------- */
+            OutlinedTextField(
+                place,
+                { place = it },
+                label = { Text("Lugar") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            run {
+                val typed = place.text.trim()
+                val visible = placeSugg
+                    .filter { it.isNotBlank() }
+                    .filter { typed.isEmpty() || it.contains(typed, ignoreCase = true) }
+                    .take(12)
+                if (visible.isNotEmpty()) {
+                    Text("Sugerencias de lugares", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        visible.forEach { s ->
+                            AssistChip(
+                                onClick = { place = TextFieldValue(s) },
+                                label = { Text(s) }
+                            )
+                        }
                     }
                 }
             }
 
-            item { Text("Intensidad general", style = MaterialTheme.typography.titleMedium) }
-            item { NumberPickerRow(selected = generalIntensity, onSelect = { generalIntensity = it }) }
+            /* --------- Personas + sugerencias (autocompleta la última palabra) --------- */
+            OutlinedTextField(
+                people,
+                { people = it },
+                label = { Text("Personas (separadas por comas)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-            item { OutlinedTextField(place, { place = it }, label = { Text("Lugar") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(people, { people = it }, label = { Text("Personas") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(thoughts, { thoughts = it }, label = { Text("Pensamientos") }, modifier = Modifier.fillMaxWidth(), maxLines = 4) }
-            item { OutlinedTextField(actions, { actions = it }, label = { Text("Lo que hiciste") }, modifier = Modifier.fillMaxWidth(), maxLines = 4) }
-            item { OutlinedTextField(situationFacts, { situationFacts = it }, label = { Text("Situación y hechos") }, modifier = Modifier.fillMaxWidth(), maxLines = 6) }
-            item { OutlinedTextField(notes, { notes = it }, label = { Text("Notas") }, modifier = Modifier.fillMaxWidth(), maxLines = 4) }
+            run {
+                val currentNames = parsePeople(people.text)
+                val typedLast = people.text.substringAfterLast(",").trim()
+                val visible = peopleSugg
+                    .filter { it.isNotBlank() && it !in currentNames }
+                    .filter { typedLast.isEmpty() || it.contains(typedLast, ignoreCase = true) }
+                    .take(16)
 
-            item {
-                Button(
-                    onClick = {
-                        val items = selected.map { (key, level) ->
-                            val def = defaultEmotionPalette.firstOrNull { it.key == key }
-                            EmotionItem(key, def?.label ?: key, level)
+                if (visible.isNotEmpty()) {
+                    Text("Sugerencias de personas", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        visible.forEach { name ->
+                            AssistChip(
+                                onClick = {
+                                    val parts = people.text.split(",")
+                                    val trimmed = parts.map { it.trim() }.toMutableList()
+                                    if (trimmed.isEmpty() || (trimmed.size == 1 && trimmed[0].isEmpty())) {
+                                        people = TextFieldValue(name)
+                                    } else {
+                                        if (typedLast.isNotEmpty()) {
+                                            trimmed[trimmed.lastIndex] = name
+                                        } else {
+                                            if (trimmed.none { it.equals(name, ignoreCase = true) }) {
+                                                trimmed.add(name)
+                                            }
+                                        }
+                                        val seen = mutableSetOf<String>()
+                                        val final = mutableListOf<String>()
+                                        for (p in trimmed) {
+                                            if (p.isNotEmpty()) {
+                                                val k = p.lowercase()
+                                                if (seen.add(k)) final.add(p)
+                                            }
+                                        }
+                                        people = TextFieldValue(final.joinToString(", "))
+                                    }
+                                },
+                                label = { Text(name) }
+                            )
                         }
-                        val entry = EmotionEntry(
-                            emotions = items,
-                            generalIntensity = generalIntensity,
-                            place = place.text,
-                            people = people.text,
-                            thoughts = thoughts.text,
-                            actions = actions.text,
-                            notes = notes.text,
-                            situationFacts = situationFacts.text
-                        )
-                        runCatching { saveEmotionEntryFile(context, entry) }
-                            .onSuccess {
-                                Toast.makeText(context, "Emoción guardada en gestor.", Toast.LENGTH_LONG).show()
-                                // reset
-                                selected.clear()
-                                generalIntensity = 3
-                                place = TextFieldValue("")
-                                people = TextFieldValue("")
-                                thoughts = TextFieldValue("")
-                                actions = TextFieldValue("")
-                                notes = TextFieldValue("")
-                                situationFacts = TextFieldValue("")
-                            }
-                            .onFailure {
-                                Toast.makeText(context, "Error al guardar: ${it.message}", Toast.LENGTH_LONG).show()
-                            }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Guardar en gestor") }
+                    }
+                }
             }
+
+            /* --------- Situación y hechos (debajo de Personas) --------- */
+            OutlinedTextField(
+                situationFacts,
+                { situationFacts = it },
+                label = { Text("Situación y hechos") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 6
+            )
+
+            /* --------- Resto de campos --------- */
+            OutlinedTextField(thoughts, { thoughts = it }, label = { Text("Pensamientos") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+            OutlinedTextField(actions, { actions = it }, label = { Text("Lo que hiciste") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+            OutlinedTextField(notes, { notes = it }, label = { Text("Notas") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+
+            Button(
+                onClick = {
+                    val items = selected.map { (key, level) ->
+                        val def = defaultEmotionPalette.firstOrNull { it.key == key }
+                        EmotionItem(key, def?.label ?: key, level)
+                    }
+
+                    val entry = EmotionEntry(
+                        emotions = items,
+                        generalIntensity = generalIntensity,
+                        place = place.text,
+                        people = people.text,
+                        thoughts = thoughts.text,
+                        actions = actions.text,
+                        notes = notes.text,
+                        situationFacts = situationFacts.text
+                    )
+                    runCatching { saveEmotionEntryFile(context, entry) }
+                        .onSuccess {
+                            val p = place.text.trim()
+                            if (p.isNotEmpty()) addPlaceSuggestion(context, p)
+                            val ppl = parsePeople(people.text)
+                            if (ppl.isNotEmpty()) addPeopleSuggestions(context, ppl)
+
+                            placeSugg = loadPlaceSuggestions(context)
+                            peopleSugg = loadPeopleSuggestions(context)
+
+                            Toast.makeText(context, "Emoción guardada en gestor.", Toast.LENGTH_LONG).show()
+                            selected.clear(); generalIntensity = 3
+                            place = TextFieldValue(""); people = TextFieldValue("")
+                            thoughts = TextFieldValue(""); actions = TextFieldValue("")
+                            notes = TextFieldValue(""); situationFacts = TextFieldValue("")
+                        }
+                        .onFailure {
+                            Toast.makeText(context, "Error al guardar: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Guardar en gestor") }
         }
     }
 
@@ -216,8 +338,14 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     }
 }
 
-/* ---- UI auxiliares (igual que antes) ---- */
+/* ---- Utils de sugerencias ---- */
+private fun parsePeople(raw: String): List<String> =
+    raw.split(",")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
 
+/* ---- UI auxiliares ---- */
 @Composable
 private fun EmotionBarButton(
     label: String,
@@ -230,7 +358,7 @@ private fun EmotionBarButton(
 ) {
     val level = intensityLevel?.coerceIn(1, 5) ?: 0
     val bgColor = MaterialTheme.colorScheme.surfaceVariant
-    val shape = RoundedCornerShape(12.dp)
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
 
     Box(
         modifier = Modifier
@@ -248,17 +376,7 @@ private fun EmotionBarButton(
                         .weight(level.toFloat())
                         .fillMaxHeight()
                         .background(baseColor)
-                ) {
-                    if (level < 5) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .fillMaxHeight()
-                                .width(1.dp)
-                                .background(Color.Black.copy(alpha = 0.28f))
-                        )
-                    }
-                }
+                )
                 val rem = 5 - level
                 if (rem > 0) {
                     Spacer(
@@ -268,11 +386,7 @@ private fun EmotionBarButton(
                     )
                 }
             } else {
-                Spacer(
-                    modifier = Modifier
-                        .weight(5f)
-                        .fillMaxHeight()
-                )
+                Spacer(modifier = Modifier.weight(5f).fillMaxHeight())
             }
         }
         Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
@@ -323,7 +437,7 @@ private fun NumberPickerRow(selected: Int, onSelect: (Int) -> Unit) {
                 modifier = Modifier
                     .width(48.dp)
                     .height(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
                     .background(bg)
                     .pointerInput(Unit) { detectTapGestures(onTap = { onSelect(n) }) },
                 contentAlignment = Alignment.Center
@@ -332,7 +446,12 @@ private fun NumberPickerRow(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-private fun calcularAnchoBoton(screenWidthDp: Dp, paddingHorizontal: Dp, espacioEntreBotones: Dp, botonesPorFila: Int): Dp {
+private fun calcularAnchoBoton(
+    screenWidthDp: Dp,
+    paddingHorizontal: Dp,
+    espacioEntreBotones: Dp,
+    botonesPorFila: Int
+): Dp {
     val anchoDisponible = screenWidthDp - (paddingHorizontal * 2)
     val totalEspacios = espacioEntreBotones * (botonesPorFila - 1)
     return (anchoDisponible - totalEspacios) / botonesPorFila
