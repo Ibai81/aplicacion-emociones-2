@@ -35,6 +35,8 @@ import com.example.emotionapp.data.addPeopleSuggestions
 import com.example.emotionapp.data.addPlaceSuggestion
 import com.example.emotionapp.data.loadPeopleSuggestions
 import com.example.emotionapp.data.loadPlaceSuggestions
+import com.example.emotionapp.data.loadSensationsSuggestions
+import com.example.emotionapp.data.addSensationsSuggestions
 import android.content.res.Configuration
 import androidx.compose.ui.input.pointer.pointerInput
 
@@ -70,6 +72,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     // Sugerencias persistentes (lugares/personas)
     var placeSugg by remember { mutableStateOf(loadPlaceSuggestions(context)) }
     var peopleSugg by remember { mutableStateOf(loadPeopleSuggestions(context)) }
+    var sensationsSugg by remember { mutableStateOf(loadSensationsSuggestions(context)) }
 
     var editingKey by remember { mutableStateOf<String?>(null) }
     val currentIntensity = editingKey?.let { selected[it] } ?: 3
@@ -262,8 +265,64 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                     }
                 }
             }
+            /* --------- Sensaciones corporales (debajo de Personas) --------- */
+            OutlinedTextField(
+                notes,
+                { notes = it },
+                label = { Text("Sensaciones corporales (separadas por comas)") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 4
+            )
+            run {
+                val currentSens = parseSensations(notes.text)
+                val typedLast = notes.text.substringAfterLast(",").trim()
+                val visible = sensationsSugg
+                    .filter { it.isNotBlank() && it !in currentSens }
+                    .filter { typedLast.isEmpty() || it.contains(typedLast, ignoreCase = true) }
+                    .take(16)
 
-            /* --------- Situación y hechos (debajo de Personas) --------- */
+                if (visible.isNotEmpty()) {
+                    Text("Sugerencias de sensaciones", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        visible.forEach { s ->
+                            AssistChip(
+                                onClick = {
+                                    val parts = notes.text.split(",")
+                                    val trimmed = parts.map { it.trim() }.toMutableList()
+                                    if (trimmed.isEmpty() || (trimmed.size == 1 && trimmed[0].isEmpty())) {
+                                        notes = TextFieldValue(s)
+                                    } else {
+                                        if (typedLast.isNotEmpty()) {
+                                            trimmed[trimmed.lastIndex] = s
+                                        } else {
+                                            if (trimmed.none { it.equals(s, ignoreCase = true) }) {
+                                                trimmed.add(s)
+                                            }
+                                        }
+                                        // normaliza y quita duplicados (case-insensitive)
+                                        val seen = mutableSetOf<String>()
+                                        val final = mutableListOf<String>()
+                                        for (p in trimmed.map { it.trim() }) {
+                                            if (p.isNotEmpty()) {
+                                                val k = p.lowercase()
+                                                if (seen.add(k)) final.add(p)
+                                            }
+                                        }
+                                        notes = TextFieldValue(final.joinToString(", "))
+                                    }
+                                },
+                                label = { Text(s) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            /* --------- Situación y hechos (debajo de sensaciones) --------- */
             OutlinedTextField(
                 situationFacts,
                 { situationFacts = it },
@@ -300,7 +359,11 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                             if (p.isNotEmpty()) addPlaceSuggestion(context, p)
                             val ppl = parsePeople(people.text)
                             if (ppl.isNotEmpty()) addPeopleSuggestions(context, ppl)
+                            val sens = parseSensations(notes.text)
+                            if (sens.isNotEmpty()) addSensationsSuggestions(context, sens)
 
+                            // refresca sugerencias
+                            sensationsSugg = loadSensationsSuggestions(context)
                             placeSugg = loadPlaceSuggestions(context)
                             peopleSugg = loadPeopleSuggestions(context)
 
@@ -344,6 +407,12 @@ private fun parsePeople(raw: String): List<String> =
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .distinctBy { it.lowercase() }
+private fun parseSensations(raw: String): List<String> =
+    raw.split(",")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
+
 
 /* ---- UI auxiliares ---- */
 @Composable
