@@ -33,6 +33,11 @@ private fun nowStamp(): String {
     return sdf.format(Date())
 }
 
+private fun todayYmd(): String {
+    val sdf = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+    return sdf.format(Date())
+}
+
 private fun sanitizeSegment(raw: String): String =
     raw.lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9_-]"), "")
 
@@ -227,14 +232,14 @@ private fun writeStringList(context: Context, key: String, list: List<String>) {
 private fun normalize(s: String) = s.trim()
 
 private fun sanitizeListKeepOrder(list: List<String>): List<String> {
-    val out = mutableListOf<String>()
-    val seen = mutableSetOf<String>()
+    val out = mutableListOf<String>();
+    val seen = mutableSetOf<String>();
     for (it in list.map(::normalize).filter { it.isNotEmpty() }) {
-        val k = it.lowercase(Locale.getDefault())
-        if (seen.add(k)) out.add(it)
-        if (out.size >= MAX_SUGGESTIONS) break
+        val k = it.lowercase(Locale.getDefault());
+        if (seen.add(k)) out.add(it);
+        if (out.size >= MAX_SUGGESTIONS) break;
     }
-    return out
+    return out;
 }
 
 private fun mergeUniqueCaseInsensitive(base: MutableList<String>, incoming: List<String>) {
@@ -360,6 +365,33 @@ fun exportEntriesToLocalZip(context: Context): File {
     return outFile
 }
 
+/** NUEVO: Exporta un subconjunto de bases a un ZIP con nombre controlado. */
+@Throws(IOException::class)
+fun exportEntriesToLocalZipSubset(context: Context, baseNames: Set<String>?, outName: String): File {
+    val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Exportaciones_emolog")
+    if (!baseDir.exists()) baseDir.mkdirs()
+    val safe = outName.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9._-]"), "_")
+    val finalName = if (safe.endsWith(".zip")) safe else "$safe.zip"
+    val outFile = File(baseDir, finalName)
+
+    val root = entriesDir(context)
+    val allFiles = root.listFiles()?.filter { it.isFile } ?: emptyList()
+    val allowedBases = baseNames?.toSet()
+
+    ZipOutputStream(BufferedOutputStream(FileOutputStream(outFile))).use { zos ->
+        for (f in allFiles) {
+            val base = f.nameWithoutExtension
+            val include = if (allowedBases == null) true else allowedBases.contains(base)
+            if (!include) continue
+            val rel = root.toPath().relativize(f.toPath()).toString().replace("\\", "/")
+            zos.putNextEntry(ZipEntry(rel))
+            FileInputStream(f).use { it.copyTo(zos, 8 * 1024) }
+            zos.closeEntry()
+        }
+    }
+    return outFile
+}
+
 /** Importa desde un ZIP seleccionado con SAF. */
 @Throws(IOException::class)
 fun importEntriesFromZip(context: Context, srcUri: Uri) {
@@ -377,6 +409,30 @@ fun importEntriesFromZip(context: Context, srcUri: Uri) {
             }
         }
     } ?: throw IOException("No se pudo abrir el ZIP de origen.")
+}
+
+/** NUEVO: Importa desde un ZIP local (File). Sobrescribe si existe. */
+@Throws(IOException::class)
+fun importEntriesFromLocalZip(context: Context, zipFile: File) {
+    val root = entriesDir(context)
+    ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
+        var entry: ZipEntry? = zis.nextEntry
+        while (entry != null) {
+            val outFile = File(root, entry.name.substringAfterLast("/"))
+            if (!entry.isDirectory) {
+                FileOutputStream(outFile).use { fos -> zis.copyTo(fos, 8 * 1024) }
+            }
+            zis.closeEntry()
+            entry = zis.nextEntry
+        }
+    }
+}
+
+/** NUEVO: Lista de backups .zip locales en la carpeta Exportaciones_emolog */
+fun listLocalBackups(context: Context): List<File> {
+    val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Exportaciones_emolog")
+    if (!baseDir.exists()) return emptyList()
+    return baseDir.listFiles()?.filter { it.isFile && it.name.endsWith(".zip", ignoreCase = true) }?.sortedByDescending { it.lastModified() } ?: emptyList()
 }
 
 /* ================== Resumen para IA ================== */
@@ -464,8 +520,67 @@ fun buildEntriesSummary(context: Context): String {
     return gson.toJson(payload)
 }
 
+/** NUEVO: resumen filtrado por baseNames (null = todo) */
+fun buildEntriesSummaryFor(context: Context, baseFilter: Set<String>?): String {
+    val gson = Gson()
+    val filter = baseFilter?.toSet()
+
+    val emos = listEmotionFiles(context).filter { filter == null || filter.contains(it.baseName) }.mapNotNull { ef ->
+        runCatching {
+            val entry = loadEmotionEntry(context, ef.file)
+            val (lugar, fecha) = extractPlaceAndDate(ef.baseName)
+
+            val text = ef.file.readText()
+            val sensations: List<String> = try {
+                val obj = JsonParser.parseString(text).asJsonObject
+                if (obj.has("sensations") && obj.get("sensations").isJsonArray)
+                    gson.fromJson(obj.get("sensations"), object : TypeToken<List<String>>() {}.type)
+                else splitNotesToSensations(obj.get("notes")?.asString)
+            } catch (_: Exception) {
+                splitNotesToSensations(entry.notes)
+            }
+
+            SummaryEmotion(
+                file = ef.file.name,
+                lugar = lugar,
+                fecha = fecha,
+                generalIntensity = entry.generalIntensity,
+                sensations = sensations,
+                emotions = entry.emotions.map { mapOf("key" to it.key, "label" to it.label, "intensity" to it.intensity) },
+                people = entry.people,
+                thoughts = entry.thoughts,
+                actions = entry.actions,
+                situationFacts = entry.situationFacts
+            )
+        }.getOrNull()
+    }
+
+    val auds = listAudioFiles(context).filter { filter == null || filter.contains(it.baseName) }.mapNotNull { af ->
+        val meta = loadAudioMeta(context, af.baseName) ?: return@mapNotNull null
+        val (lugar, fecha) = extractPlaceAndDate(af.baseName)
+        SummaryAudio(
+            file = af.file.name,
+            lugar = lugar,
+            fecha = fecha,
+            generalIntensity = meta.generalIntensity,
+            description = meta.description
+        )
+    }
+
+    val payload = mapOf("emociones" to emos, "audios" to auds)
+    return gson.toJson(payload)
+}
+
 fun copySummaryToClipboard(context: Context): String {
     val text = buildEntriesSummary(context)
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("Resumen Emolog", text))
+    return text
+}
+
+/** NUEVO: copia resumen filtrado al portapapeles */
+fun copySummaryToClipboardFor(context: Context, baseFilter: Set<String>?): String {
+    val text = buildEntriesSummaryFor(context, baseFilter)
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("Resumen Emolog", text))
     return text

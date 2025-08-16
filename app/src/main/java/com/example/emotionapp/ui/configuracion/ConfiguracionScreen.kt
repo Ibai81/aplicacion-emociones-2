@@ -2,55 +2,66 @@ package com.example.emotionapp.ui.configuracion
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.emotionapp.defaultEmotionPalette
 import com.example.emotionapp.EmotionDef
-import com.example.emotionapp.data.loadTopicSuggestions
-import com.example.emotionapp.data.replaceTopicSuggestions
+import com.example.emotionapp.defaultEmotionPalette
+import com.example.emotionapp.data.*
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ConfiguracionScreen(
     primaryColor: Color,
     onColorSelected: (Color) -> Unit,
     emotionColors: SnapshotStateMap<String, Color>,
+    onPickForEmotion: (String, Color) -> Unit,
+    palette: List<Color>,
     onResetAll: () -> Unit
 ) {
     val context = LocalContext.current
+    val scroll = rememberScrollState()
 
-    // ====== Estado local de temas ======
-    var topics by remember { mutableStateOf(loadTopicSuggestions(context).toMutableList()) }
-    var newTopic by remember { mutableStateOf("") }
+    // Cargas iniciales
+    var topics by remember { mutableStateOf(loadTopicSuggestions(context)) }
+    var places by remember { mutableStateOf(loadPlaceSuggestions(context)) }
+    var people by remember { mutableStateOf(loadPeopleSuggestions(context)) }
+    var sensations by remember { mutableStateOf(loadSensationsSuggestions(context)) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scroll)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Configuración", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
-        // -------------------- Color primario (ejemplo simple) --------------------
+        // -------------------- Color primario de la app --------------------
         Card {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text("Color primario de la app", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val palette = listOf(
-                        Color(0xFF6A1B9A), Color(0xFF3949AB), Color(0xFF1E88E5), Color(0xFF00ACC1),
-                        Color(0xFF43A047), Color(0xFFF4511E), Color(0xFFFB8C00), Color(0xFFFDD835),
-                        Color(0xFF546E7A), Color(0xFF8D6E63)
-                    )
                     palette.forEach { c ->
                         val sel = c == primaryColor
                         FilledTonalButton(onClick = { onColorSelected(c) }) {
@@ -62,80 +73,233 @@ fun ConfiguracionScreen(
                         }
                     }
                 }
-                OutlinedButton(onClick = onResetAll) { Text("Restablecer colores de emociones") }
+                Text(
+                    "La barra de estado (hora/batería) cambia al color primario.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
-        // -------------------- Colores por emoción (opcional) --------------------
+        // -------------------- Colores por emoción (botón + desplegable de opciones) --------------------
         Card {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text("Colores por emoción", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+
+                defaultEmotionPalette.chunked(2).forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        row.forEach { def ->
+                            val current = emotionColors[def.key] ?: def.color
+                            EmotionColorButton(
+                                label = def.label,
+                                currentColor = current,
+                                palette = palette,
+                                onPick = { picked -> onPickForEmotion(def.key, picked) }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedButton(onClick = onResetAll) { Text("Restablecer todo") }
+            }
+        }
+
+        // -------------------- Gestores con desplegable + añadir + guardar + borrar/seleccionar --------------------
+        ManageListSection(
+            title = "Temas",
+            items = topics,
+            onItemsChange = { topics = it; replaceTopicSuggestions(context, it) }
+        )
+
+        ManageListSection(
+            title = "Lugares",
+            items = places,
+            onItemsChange = { places = it; replacePlaceSuggestions(context, it) }
+        )
+
+        ManageListSection(
+            title = "Personas",
+            items = people,
+            onItemsChange = { people = it; replacePeopleSuggestions(context, it) }
+        )
+
+        ManageListSection(
+            title = "Sensaciones",
+            items = sensations,
+            onItemsChange = { sensations = it; replaceSensationsSuggestions(context, it) }
+        )
+    }
+}
+
+/* =================== Subcomponentes =================== */
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun EmotionColorButton(
+    label: String,
+    currentColor: Color,
+    palette: List<Color>,
+    onPick: (Color) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Button(
+            onClick = { expanded = true },
+            colors = ButtonDefaults.buttonColors(containerColor = currentColor),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text(label)
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            // SOLO opciones de color
+            Column(Modifier.padding(8.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    defaultEmotionPalette.forEach { def: EmotionDef ->
-                        val color = emotionColors[def.key] ?: def.color
-                        ElevatedButton(onClick = {
-                            // Rotación simple de tonos / placeholder
-                            emotionColors[def.key] = color
-                        }) { Text(def.label) }
+                    palette.forEach { c ->
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(c)
+                                .clickable {
+                                    onPick(c)
+                                    expanded = false
+                                }
+                        )
                     }
                 }
             }
         }
+    }
+}
 
-        // -------------------- Temas / contextos (Editor) --------------------
-        Card {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Temas / contextos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ManageListSection(
+    title: String,
+    items: List<String>,
+    onItemsChange: (List<String>) -> Unit
+) {
+    val context = LocalContext.current
+    var list by remember(items) { mutableStateOf(items) }
+    var expanded by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = newTopic,
-                        onValueChange = { newTopic = it },
-                        label = { Text("Añadir tema (ej. trabajo, familia, proyecto)") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Button(onClick = {
-                        val t = newTopic.trim()
-                        if (t.isEmpty()) return@Button
-                        if (topics.any { it.equals(t, ignoreCase = true) }) {
-                            Toast.makeText(context, "Ya existe.", Toast.LENGTH_SHORT).show()
-                        } else {
-                            topics = (topics + t).toMutableList()
-                            replaceTopicSuggestions(context, topics) // persistimos
-                            newTopic = ""
-                        }
-                    }) { Text("Añadir") }
-                }
+    Card {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                if (topics.isEmpty()) {
-                    Text("Aún no hay temas guardados.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    // Lista de temas con botón borrar
-                    topics.forEach { t ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AssistChip(onClick = { /* no-op */ }, label = { Text(t) })
-                            TextButton(onClick = {
-                                topics = topics.filter { !it.equals(t, ignoreCase = true) }.toMutableList()
-                                replaceTopicSuggestions(context, topics)
-                            }) { Text("Borrar") }
+            // Desplegable para ver los que hay
+            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                OutlinedTextField(
+                    value = selected.orEmpty(),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Listado") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    if (list.isEmpty()) {
+                        DropdownMenuItem(text = { Text("— vacío —") }, onClick = { })
+                    } else {
+                        list.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item) },
+                                onClick = {
+                                    selected = item
+                                    expanded = false
+                                }
+                            )
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            topics = loadTopicSuggestions(context).toMutableList()
-                            Toast.makeText(context, "Recargado.", Toast.LENGTH_SHORT).show()
-                        }) { Text("Recargar") }
-                        Button(onClick = {
-                            replaceTopicSuggestions(context, topics)
-                            Toast.makeText(context, "Temas guardados.", Toast.LENGTH_SHORT).show()
-                        }) { Text("Guardar cambios") }
-                    }
                 }
+            }
+
+            // Botones: borrar / seleccionar
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val sel = selected
+                        if (sel.isNullOrBlank()) {
+                            Toast.makeText(context, "Elige un elemento.", Toast.LENGTH_SHORT).show(); return@OutlinedButton
+                        }
+                        val newList = list.filter { !it.equals(sel, ignoreCase = true) }
+                        list = newList
+                        onItemsChange(newList)
+                        if (input.equals(sel, ignoreCase = true)) input = ""
+                        selected = null
+                        Toast.makeText(context, "Borrado: $sel", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("Borrar") }
+
+                Button(
+                    onClick = {
+                        val sel = selected
+                        if (sel.isNullOrBlank()) {
+                            Toast.makeText(context, "Elige un elemento.", Toast.LENGTH_SHORT).show(); return@Button
+                        }
+                        // “Seleccionar” = volcamos al cuadro de texto para editar o guardar
+                        input = sel
+                        Toast.makeText(context, "Seleccionado: $sel", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("Seleccionar") }
+            }
+
+            // Cuadro para añadir/editar + Guardar
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                label = { Text("Añadir / Editar") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val v = input.trim()
+                        if (v.isEmpty()) {
+                            Toast.makeText(context, "Escribe algo.", Toast.LENGTH_SHORT).show(); return@Button
+                        }
+                        val exists = list.any { it.equals(v, ignoreCase = true) }
+                        val newList = if (exists) {
+                            list.filterNot { it.equals(v, ignoreCase = true) }.let { listOf(v) + it }
+                        } else listOf(v) + list
+                        list = newList
+                        onItemsChange(newList)
+                        Toast.makeText(context, "Guardado.", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("Guardar") }
+
+                OutlinedButton(
+                    onClick = {
+                        // Actualizar desde almacenamiento (por si cambió en otras pantallas)
+                        when (title) {
+                            "Temas" -> list = loadTopicSuggestions(context)
+                            "Lugares" -> list = loadPlaceSuggestions(context)
+                            "Personas" -> list = loadPeopleSuggestions(context)
+                            "Sensaciones" -> list = loadSensationsSuggestions(context)
+                        }
+                        Toast.makeText(context, "Lista actualizada.", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("Actualizar lista") }
             }
         }
     }
@@ -152,11 +316,12 @@ fun SettingsScreen(
     onPickForEmotion: (String, Color) -> Unit,
     onResetAll: () -> Unit
 ) {
-    // Reutiliza la UI anterior (mapeando parámetros)
     ConfiguracionScreen(
         primaryColor = primaryColor,
         onColorSelected = onPickPrimary,
         emotionColors = emotionColors,
+        onPickForEmotion = onPickForEmotion,
+        palette = palette,
         onResetAll = onResetAll
     )
 }

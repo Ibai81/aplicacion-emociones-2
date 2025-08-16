@@ -19,6 +19,15 @@ import com.example.emotionapp.data.deleteEmotionAndMedia
 import com.example.emotionapp.data.parseBaseName
 import com.google.gson.Gson
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+// Backup / restore / copy helpers
+import com.example.emotionapp.data.listLocalBackups
+import com.example.emotionapp.data.importEntriesFromLocalZip
+import com.example.emotionapp.data.exportEntriesToLocalZipSubset
+import com.example.emotionapp.data.copySummaryToClipboardFor
 
 @Composable
 fun GestorScreen() {
@@ -40,8 +49,17 @@ fun GestorScreen() {
     var toDelete by remember { mutableStateOf<RowItem?>(null) }
     var toView by remember { mutableStateOf<RowItem?>(null) }
 
+    // Selección por check
+    val selected = remember { mutableStateMapOf<String, Boolean>() } // baseName -> checked
+    val selectedBases by remember { derivedStateOf { selected.filter { it.value }.keys.toSet() } }
+
+    // Diálogos controlados por estado
+    var pendingSave by remember { mutableStateOf<Pair<Set<String>, String>?>(null) } // (bases, autoName)
+    var showRestore by remember { mutableStateOf(false) }
+
     fun refresh() { rows = loadRows(context) }
 
+    // Filtro
     val filtered = remember(rows, query) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) rows else rows.filter { r ->
@@ -56,6 +74,10 @@ fun GestorScreen() {
         }
     }
 
+    // Conjuntos de bases según contexto
+    val allBases = remember(rows) { rows.map { it.baseName }.toSet() }
+    val filteredBases = remember(filtered) { filtered.map { it.baseName }.toSet() }
+
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Gestor de entradas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
@@ -67,6 +89,102 @@ fun GestorScreen() {
             modifier = Modifier.fillMaxWidth()
         )
 
+        // ===== Acciones globales (2 filas x 2 botones) =====
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val allFilteredSelected = filtered.isNotEmpty() && filtered.all { selected[it.baseName] == true }
+                OutlinedButton(
+                    onClick = {
+                        if (!allFilteredSelected) {
+                            filtered.forEach { selected[it.baseName] = true }
+                        } else {
+                            filtered.forEach { selected[it.baseName] = false }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text(if (allFilteredSelected) "Deseleccionar todo" else "Seleccionar todo") }
+
+                Button(
+                    onClick = {
+                        val scopeBases: Set<String> = when {
+                            selectedBases.isNotEmpty() -> selectedBases
+                            query.isNotBlank() -> filteredBases
+                            else -> allBases
+                        }
+                        val date = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+                        val auto = when {
+                            selectedBases.isNotEmpty() -> "${date}_seleccion"
+                            query.isNotBlank() -> "${date}_filtrado"
+                            else -> "${date}_todo"
+                        }
+                        pendingSave = scopeBases to auto
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Guardar") }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val zips = listLocalBackups(context)
+                        if (zips.isEmpty()) {
+                            Toast.makeText(context, "No hay copias en la carpeta.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            showRestore = true
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Recuperar") }
+
+                OutlinedButton(
+                    onClick = {
+                        if (selectedBases.isEmpty()) {
+                            Toast.makeText(context, "No hay selección.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val txt = copySummaryToClipboardFor(context, selectedBases)
+                            Toast.makeText(context, "Resumen copiado (${txt.length} chars).", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Copiar sel") }
+            }
+        }
+
+        // ----- Diálogos controlados por estado -----
+        val saveReq = pendingSave
+        if (saveReq != null) {
+            SaveDialog(
+                context = context,
+                scopeBases = saveReq.first,
+                autoName = saveReq.second,
+                onResult = { ok ->
+                    if (ok) Toast.makeText(context, "Backup guardado.", Toast.LENGTH_SHORT).show()
+                    else Toast.makeText(context, "No se pudo guardar.", Toast.LENGTH_SHORT).show()
+                    pendingSave = null
+                }
+            )
+        }
+        if (showRestore) {
+            RestoreDialog(
+                context = context,
+                onImported = {
+                    refresh()
+                    Toast.makeText(context, "Recuperado.", Toast.LENGTH_SHORT).show()
+                    showRestore = false
+                },
+                onDismiss = { showRestore = false }
+            )
+        }
+
+        // ===== Lista =====
         if (filtered.isEmpty()) {
             Text("No hay entradas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
@@ -79,63 +197,73 @@ fun GestorScreen() {
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { toView = row } // tocar fuera de botones => ver detalle
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Línea 1: fecha (dd/mm/aaaa) + lugar
-                            val dateOnly = formatDateDdMmYyyy(row.dateStamp)
-                            val place = row.place.ifBlank { "—" }
-                            Text(
-                                text = "$dateOnly   $place",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            // Línea 2: acciones: Reproducir (si hay audio) + borrar (icono)
                             Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (row.hasAudio) {
-                                    val isPlaying = playingBase == row.baseName
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (!isPlaying) {
-                                                try {
-                                                    player?.let { try { it.stop(); it.release() } catch (_: Exception) {} }
-                                                    val p = MediaPlayer().apply {
-                                                        setDataSource(row.audioFile!!.absolutePath)
-                                                        prepare()
-                                                        start()
-                                                        setOnCompletionListener { playingBase = null }
-                                                    }
-                                                    player = p
-                                                    playingBase = row.baseName
-                                                } catch (_: Exception) {
-                                                    playingBase = null
-                                                    try { player?.release() } catch (_: Exception) {}
-                                                    player = null
-                                                    Toast.makeText(context, "No se pudo reproducir.", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } else {
-                                                try { player?.pause() } catch (_: Exception) {}
-                                                playingBase = null
-                                            }
-                                        }
-                                    ) { Text(if (isPlaying) "Pausar" else "Reproducir") }
-                                } else {
-                                    Text("Sin audio", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-
-                                IconButton(
-                                    onClick = { toDelete = row },
-                                    colors = IconButtonDefaults.iconButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
-                                    )
+                                Checkbox(
+                                    checked = selected[row.baseName] == true,
+                                    onCheckedChange = { checked -> selected[row.baseName] = checked }
+                                )
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable { toView = row }
                                 ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Borrar")
+                                    val dateOnly = formatDateDdMmYyyy(row.dateStamp)
+                                    val place = row.place.ifBlank { "—" }
+                                    Text(
+                                        text = "$dateOnly   $place",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (row.hasAudio) {
+                                        val isPlaying = playingBase == row.baseName
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (!isPlaying) {
+                                                    try {
+                                                        player?.let { try { it.stop(); it.release() } catch (_: Exception) {} }
+                                                        val p = MediaPlayer().apply {
+                                                            setDataSource(row.audioFile!!.absolutePath)
+                                                            prepare()
+                                                            start()
+                                                            setOnCompletionListener { playingBase = null }
+                                                        }
+                                                        player = p
+                                                        playingBase = row.baseName
+                                                    } catch (_: Exception) {
+                                                        playingBase = null
+                                                        try { player?.release() } catch (_: Exception) {}
+                                                        player = null
+                                                        Toast.makeText(context, "No se pudo reproducir.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } else {
+                                                    try { player?.pause() } catch (_: Exception) {}
+                                                    playingBase = null
+                                                }
+                                            }
+                                        ) { Text(if (isPlaying) "Pausar" else "Reproducir") }
+                                    } else {
+                                        Text("Sin audio", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+
+                                    IconButton(
+                                        onClick = { toDelete = row },
+                                        colors = IconButtonDefaults.iconButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Borrar")
+                                    }
                                 }
                             }
                         }
@@ -145,7 +273,7 @@ fun GestorScreen() {
         }
     }
 
-    // -------- Ventana flotante con texto (detalle) --------
+    // -------- Ventana de detalle --------
     val viewing = toView
     if (viewing != null) {
         val entry = viewing.entry
@@ -158,8 +286,6 @@ fun GestorScreen() {
                 } else {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         fun <T> safeOrNull(get: () -> T?): T? = runCatching { get() }.getOrNull()
-
-                        // Cadenas como String? para evitar NPE y usar isNullOrBlank
                         val dateFull: String? = safeOrNull { viewing.dateStamp }
                         val placeText: String? = safeOrNull { entry.place }
                         val topicText: String? = safeOrNull { entry.topic }
@@ -181,9 +307,7 @@ fun GestorScreen() {
                             Text("Emociones: " + emos.joinToString { "${it.label}(${it.intensity})" })
                         }
                         val facts: String? = safeOrNull { entry.situationFacts }
-                        facts?.takeIf { it.isNotBlank() }?.let {
-                            Text("Situación y hechos:\n$it")
-                        }
+                        facts?.takeIf { it.isNotBlank() }?.let { Text("Situación y hechos:\n$it") }
                     }
                 }
             },
@@ -221,6 +345,76 @@ fun GestorScreen() {
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancelar") } }
         )
     }
+}
+
+/* ==================== Diálogos ==================== */
+
+@Composable
+private fun SaveDialog(
+    context: android.content.Context,
+    scopeBases: Set<String>,   // bases a incluir
+    autoName: String,          // nombre automático sugerido (sin .zip)
+    onResult: (Boolean) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { onResult(false) },
+        title = { Text("Guardar copia") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("¿Quieres nombrar el archivo o usar el nombre automático?")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre (opcional)") },
+                    singleLine = true
+                )
+                Text("Si lo dejas vacío usaré: $autoName.zip")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val raw = name.trim()
+                val chosen = if (raw.isEmpty()) autoName else raw
+                val safe = chosen.lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9._-]"), "_")
+                val finalName = if (safe.endsWith(".zip")) safe else "$safe.zip"
+                val ok = runCatching { exportEntriesToLocalZipSubset(context, scopeBases, finalName) }.isSuccess
+                onResult(ok)
+            }) { Text("Guardar") }
+        },
+        dismissButton = { TextButton(onClick = { onResult(false) }) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+private fun RestoreDialog(
+    context: android.content.Context,
+    onImported: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val zips = remember { listLocalBackups(context) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Recuperar copia") },
+        text = {
+            if (zips.isEmpty()) {
+                Text("No hay copias disponibles.")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    zips.forEach { f ->
+                        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(f.lastModified()))
+                        OutlinedButton(onClick = {
+                            val ok = runCatching { importEntriesFromLocalZip(context, f) }.isSuccess
+                            if (ok) onImported() else Toast.makeText(context, "Error al recuperar.", Toast.LENGTH_SHORT).show()
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text("${f.name}  ·  $date")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } }
+    )
 }
 
 /* ==================== Datos para la lista ==================== */
