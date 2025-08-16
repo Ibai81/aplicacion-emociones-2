@@ -1,31 +1,34 @@
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
+
 package com.example.emotionapp
 
-import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.core.view.WindowCompat
-import com.example.emotionapp.ui.audio.VoiceLogScreen
-import com.example.emotionapp.ui.configuracion.SettingsScreen
-import com.example.emotionapp.ui.emociones.EmotionScreen
-import com.example.emotionapp.ui.gestor.GestorScreen
-import com.example.emotionapp.ui.info.InfoScreen
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-/* ===== Modelo base ===== */
+/* ===== Paleta por defecto local (para colores de emociones) ===== */
 data class EmotionDef(val key: String, val label: String, val color: Color)
 val defaultEmotionPalette = listOf(
     EmotionDef("miedo", "Miedo", Color(0xFFEF5350)),
@@ -40,168 +43,121 @@ val defaultEmotionPalette = listOf(
     EmotionDef("alegria", "Alegría", Color(0xFFFDD835))
 )
 
-/* ===== Theme ===== */
-@Composable
-private fun AppTheme(primary: Color, content: @Composable () -> Unit) {
-    val base = lightColorScheme()
-    val scheme = base.copy(
-        primary = primary,
-        secondary = primary,
-        tertiary = primary,
-        primaryContainer = primary.copy(alpha = 0.15f)
-    )
-    MaterialTheme(colorScheme = scheme, content = content)
-}
+/* ===== Tabs ===== */
+enum class Screen { Rapida, Emociones, Reflexion, Gestor, Info, Configuracion }
 
-/* ===== Activity ===== */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            val context = LocalContext.current
-            var primaryColor by remember { mutableStateOf(loadPrimaryColor(context)) }
-            var emotionColors by remember { mutableStateOf(loadEmotionColors(context)) }
-
-            AppTheme(primary = primaryColor) {
-                ApplySystemBars(primaryColor)
-                AppRoot(
-                    primaryColor = primaryColor,
-                    onPrimaryChange = { c -> primaryColor = c; savePrimaryColor(context, c) },
-                    emotionColors = emotionColors,
-                    onEmotionColorChange = { key, c ->
-                        emotionColors = emotionColors.toMutableMap().apply { put(key, c) }
-                        saveEmotionColors(context, emotionColors)
-                    },
-                    onResetAllEmotionColors = {
-                        emotionColors = emptyMap()
-                        saveEmotionColors(context, emotionColors)
-                    }
-                )
-            }
-        }
+        setContent { MaterialTheme { AppRoot() } }
     }
 }
 
-/* ===== Tabs: Emociones | Audio | Gestor | Configuración | Info ===== */
-private enum class Screen { Emociones, Audio, Gestor, Configuracion, Info }
-
 @Composable
-private fun AppRoot(
-    primaryColor: Color,
-    onPrimaryChange: (Color) -> Unit,
-    emotionColors: Map<String, Color>,
-    onEmotionColorChange: (String, Color) -> Unit,
-    onResetAllEmotionColors: () -> Unit
-) {
-    var current by rememberSaveable { mutableStateOf(Screen.Emociones) }
-    val tabs = listOf(Screen.Emociones, Screen.Audio, Screen.Gestor, Screen.Configuracion, Screen.Info) // ← añade Info
-    val selectedIndex = tabs.indexOf(current)
+private fun AppRoot() {
+    // Estado de colores (se usa en Configuración)
+    var primaryColor by remember { mutableStateOf(Color(0xFF6A1B9A)) }
+    val emotionColors: SnapshotStateMap<String, Color> = remember { mutableStateMapOf() }
 
-    Column {
-        TabRow(
-            selectedTabIndex = selectedIndex,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary,
-            indicator = { tabPositions ->
-                TabRowDefaults.Indicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedIndex]),
-                    color = MaterialTheme.colorScheme.primary
-                )
+    val tabs = remember {
+        listOf(
+            Screen.Rapida to "Rápida",
+            Screen.Emociones to "Emociones",
+            Screen.Reflexion to "Reflexión",
+            Screen.Gestor to "Gestor",
+            Screen.Info to "Info",
+            Screen.Configuracion to "Config"
+        )
+    }
+
+    val pagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { tabs.size }
+    )
+    val scope = rememberCoroutineScope()
+
+    // Señal desde Gestor: abrir Emociones cuando haya un "pending open"
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (com.example.emotionapp.data.consumePendingOpenEmotion(ctx)) {
+                val idx = tabs.indexOfFirst { it.first == Screen.Emociones }.coerceAtLeast(0)
+                scope.launch { pagerState.animateScrollToPage(idx) }
             }
-        ) {
-            tabs.forEach { scr ->
+            delay(150)
+        }
+    }
+
+    // Función de color para las barras de emoción
+    val getEmotionColor: (String) -> Color = remember(defaultEmotionPalette, emotionColors) {
+        { key ->
+            emotionColors[key]
+                ?: defaultEmotionPalette.firstOrNull { it.key == key }?.color
+                ?: Color(0xFF1F2937)
+        }
+    }
+
+    // Paleta simple para Configuración
+    val uiPalette = remember {
+        listOf(
+            Color(0xFF6A1B9A), Color(0xFF3949AB), Color(0xFF1E88E5), Color(0xFF00ACC1),
+            Color(0xFF43A047), Color(0xFFF4511E), Color(0xFFFB8C00), Color(0xFFFDD835),
+            Color(0xFF546E7A), Color(0xFF8D6E63)
+        )
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(title = { Text("Aplicación emociones") })
+
+        // ====== TabRow desplazable (una línea por pestaña) ======
+        ScrollableTabRow(selectedTabIndex = pagerState.currentPage) {
+            tabs.forEachIndexed { index, pair ->
+                val label = pair.second
                 Tab(
-                    selected = current == scr,
-                    onClick = { current = scr },
+                    selected = pagerState.currentPage == index,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                     text = {
                         Text(
-                            when (scr) {
-                                Screen.Emociones -> "Emociones"
-                                Screen.Audio -> "Audio"
-                                Screen.Gestor -> "Gestor"
-                                Screen.Configuracion -> "Configuración"
-                                Screen.Info -> "Info"              // ← NUEVO
-                            },
+                            label,
                             maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 )
             }
         }
 
-        when (current) {
-            Screen.Emociones -> EmotionScreen(
-                getEmotionColor = { key ->
-                    emotionColors[key]
-                        ?: defaultEmotionPalette.firstOrNull { it.key == key }?.color
-                        ?: Color(0xFF1F2937)
+        // ====== Contenido con swipe lateral (sin fling/snapping extra) ======
+        Surface(tonalElevation = 0.dp, modifier = Modifier.weight(1f)) {
+            HorizontalPager(state = pagerState) { page ->
+                when (tabs[page].first) {
+                    Screen.Rapida -> com.example.emotionapp.ui.audio.VoiceLogScreen()
+                    Screen.Emociones -> com.example.emotionapp.ui.emociones.EmotionScreen(
+                        getEmotionColor = getEmotionColor
+                    )
+                    Screen.Reflexion -> com.example.emotionapp.ui.reflexion.ReflexionScreen()
+                    Screen.Gestor -> com.example.emotionapp.ui.gestor.GestorScreen()
+                    Screen.Info -> com.example.emotionapp.ui.info.InfoScreen()
+                    Screen.Configuracion -> com.example.emotionapp.ui.configuracion.SettingsScreen(
+                        primaryColor = primaryColor,
+                        onPickPrimary = { picked -> primaryColor = picked },
+                        palette = uiPalette,
+                        defaultPalette = defaultEmotionPalette,
+                        emotionColors = emotionColors,
+                        onPickForEmotion = { key, color -> emotionColors[key] = color },
+                        onResetAll = {
+                            primaryColor = Color(0xFF6A1B9A)
+                            emotionColors.clear()
+                        }
+                    )
                 }
-            )
-            Screen.Audio -> VoiceLogScreen()
-            Screen.Gestor -> GestorScreen()
-            Screen.Configuracion -> SettingsScreen(
-                primaryColor = primaryColor,
-                onPickPrimary = onPrimaryChange,
-                palette = presetPalette(),
-                defaultPalette = defaultEmotionPalette,
-                emotionColors = emotionColors,
-                onPickForEmotion = onEmotionColorChange,
-                onResetAll = onResetAllEmotionColors
-            )
-            Screen.Info -> InfoScreen() // ← NUEVO
+            }
         }
     }
 }
 
-/* ===== Preferencias UI ===== */
-private const val PREFS_UI = "ui_prefs"
-private const val KEY_PRIMARY_COLOR = "primary_color_argb"
-private const val KEY_EMOTION_COLORS = "emotion_colors_json"
-
-private fun savePrimaryColor(context: android.content.Context, color: Color) {
-    val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
-    prefs.edit().putInt(KEY_PRIMARY_COLOR, color.toArgb()).apply()
-}
-
-private fun loadPrimaryColor(context: android.content.Context): Color {
-    val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
-    val def = Color(0xFF6A1B9A)
-    val argb = prefs.getInt(KEY_PRIMARY_COLOR, def.toArgb())
-    return Color(argb)
-}
-
-private fun saveEmotionColors(context: android.content.Context, map: Map<String, Color>) {
-    val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
-    val gson = Gson()
-    val plain = map.mapValues { it.value.toArgb() }
-    prefs.edit().putString(KEY_EMOTION_COLORS, gson.toJson(plain)).apply()
-}
-
-private fun loadEmotionColors(context: android.content.Context): Map<String, Color> {
-    val prefs = context.getSharedPreferences(PREFS_UI, android.content.Context.MODE_PRIVATE)
-    val json = prefs.getString(KEY_EMOTION_COLORS, null) ?: return emptyMap()
-    val type = object : TypeToken<Map<String, Int>>() {}.type
-    val loaded: Map<String, Int> = Gson().fromJson(json, type)
-    return loaded.mapValues { Color(it.value) }
-}
-
-@Composable
-private fun ApplySystemBars(color: Color) {
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = color.toArgb()
-            window.navigationBarColor = color.toArgb()
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
-            val useDarkIcons = color.luminance() > 0.5f
-            controller.isAppearanceLightStatusBars = useDarkIcons
-            controller.isAppearanceLightNavigationBars = useDarkIcons
-        }
-    }
-}
-
+/* Paleta de ejemplo para Configuración (si la necesitas fuera) */
 fun presetPalette(): List<Color> = listOf(
     Color(0xFF6A1B9A), Color(0xFF7C4DFF), Color(0xFF512DA8), Color(0xFF3949AB),
     Color(0xFF1E88E5), Color(0xFF00ACC1), Color(0xFF43A047), Color(0xFF8BC34A),
