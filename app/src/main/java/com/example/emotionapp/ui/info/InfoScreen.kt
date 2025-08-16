@@ -10,12 +10,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.emotionapp.defaultEmotionPalette
+import com.example.emotionapp.ui.training.TrainingStrip
 
 @Composable
 fun InfoScreen() {
@@ -57,6 +59,14 @@ fun InfoScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Guía rápida", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+
+        // Juego de entrenamiento (Rápido / Ambiguo)
+        OutlinedCard {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Entrena aquí mismo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                TrainingStrip(modifier = Modifier)
+            }
+        }
 
         EmotionBlock(
             title = "Sensaciones corporales por emoción",
