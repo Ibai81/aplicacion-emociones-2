@@ -1,111 +1,149 @@
 package com.example.emotionapp.ui.info
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import android.widget.Toast
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.emotionapp.EmotionDef
 import com.example.emotionapp.defaultEmotionPalette
-import com.example.emotionapp.ui.training.TrainingStrip
+import com.example.emotionapp.data.*
+import androidx.compose.ui.platform.LocalContext
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InfoScreen() {
+    val context = LocalContext.current
     val scroll = rememberScrollState()
 
-    // Tabla 1: Emoción + Sensaciones corporales comunes
-    val bodyByEmotion = mapOf(
-        "Miedo" to listOf("Tensión corporal", "Aceleración cardíaca", "Sudoración", "Nudo en el estómago"),
-        "Ira" to listOf("Calor en pecho/cara", "Mandíbula tensa", "Impulso a empujar/hablar fuerte"),
-        "Vergüenza" to listOf("Rubor", "Bajar la mirada", "Encogimiento postural"),
-        "Desprecio" to listOf("Ceja/comisura levantada", "Cuerpo se aparta"),
-        "Asco" to listOf("Náusea", "Retirada de cabeza", "Arrugar la nariz"),
-        "Culpa" to listOf("Opresión en pecho", "Nudo de estómago"),
-        "Sufrimiento" to listOf("Baja energía", "Opresión/lagrimeo"),
-        "Interés" to listOf("Relajación tónica", "Mirada enfocada"),
-        "Sorpresa" to listOf("Sobresalto", "Aumento del tono", "Inspiración corta"),
-        "Alegría" to listOf("Ligereza", "Expansión torácica", "Sonrisa")
-    )
-
-    // Tabla 2: Emoción + Pensamientos comunes
-    val thoughtsByEmotion = mapOf(
-        "Miedo" to listOf("“Puede pasar algo malo”", "“No estoy a salvo”"),
-        "Ira" to listOf("“Esto no es justo”", "“Tengo que poner límites”"),
-        "Vergüenza" to listOf("“Van a juzgarme”", "“Quiero desaparecer”"),
-        "Desprecio" to listOf("“Eso está por debajo de lo aceptable”"),
-        "Asco" to listOf("“Qué repugnante”"),
-        "Culpa" to listOf("“No debí hacerlo”", "“Necesito reparar”"),
-        "Sufrimiento" to listOf("“Nada mejora”", "“Estoy agotado/a”"),
-        "Interés" to listOf("“Quiero saber más”"),
-        "Sorpresa" to listOf("“¡No me lo esperaba!”"),
-        "Alegría" to listOf("“Qué bien”", "“Gracias”")
-    )
-
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxSize()
             .verticalScroll(scroll)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Guía rápida", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text("Información emocional", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
-        // Juego de entrenamiento (Rápido / Ambiguo)
-        OutlinedCard {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Entrena aquí mismo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                TrainingStrip(modifier = Modifier)
-            }
+        defaultEmotionPalette.forEach { def: EmotionDef ->
+            EmotionInfoCard(
+                key = def.key,
+                title = def.label,
+                onResetAll = {
+                    setUserEmotionDefinition(context, def.key, null)
+                    setUserEmotionSensations(context, def.key, null)
+                    Toast.makeText(context, "Restablecido: ${def.label}", Toast.LENGTH_SHORT).show()
+                },
+                onEditSaved = { newText, newSensList ->
+                    setUserEmotionDefinition(context, def.key, newText)
+                    setUserEmotionSensations(context, def.key, newSensList)
+                    Toast.makeText(context, "Actualizado: ${def.label}", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
-
-        EmotionBlock(
-            title = "Sensaciones corporales por emoción",
-            data = bodyByEmotion
-        )
-
-        EmotionBlock(
-            title = "Pensamientos frecuentes por emoción",
-            data = thoughtsByEmotion
-        )
-
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Recuerda: las etiquetas ayudan a reconocer patrones, no a encasillarte. Ajusta la app a tu lenguaje.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
 @Composable
-private fun EmotionBlock(
+private fun EmotionInfoCard(
+    key: String,
     title: String,
-    data: Map<String, List<String>>
+    onResetAll: () -> Unit,
+    onEditSaved: (String, List<String>?) -> Unit
 ) {
-    Card {
+    val context = LocalContext.current
+
+    var userDef by remember(key) { mutableStateOf(getUserEmotionDefinition(context, key).orEmpty()) }
+    val baseDef = remember(key) { getAdaptativeDefinition(key) }
+    val critDef = remember(key) { getCriticalDefinition(key) }
+    var userSens by remember(key) { mutableStateOf(getUserEmotionSensations(context, key) ?: emptyList()) }
+    val defaultSens = remember(key) { getDefaultBodySensations(key) }
+    val keyPhrases = remember(key) { getKeyPhrases(key).take(3) }
+
+    var showEditor by remember(key) { mutableStateOf(false) }
+    var editorText by remember(key) { mutableStateOf(userDef.ifBlank { baseDef }) }
+    var sensEditorText by remember(key) { mutableStateOf((if (userSens.isNotEmpty()) userSens else defaultSens).joinToString(", ")) }
+
+    ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            // Ordenamos según tu paleta para que coincidan los nombres
-            val order = defaultEmotionPalette.map { it.label }
-            data
-                .toList()
-                .sortedBy { pair -> order.indexOf(pair.first).let { if (it == -1) Int.MAX_VALUE else it } }
-                .forEach { (emotion, items) ->
-                    Text("• $emotion", fontWeight = FontWeight.SemiBold)
-                    items.forEach { it2 ->
-                        Text("   - $it2", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            // Misma tipografía/tamaño para los 4 apartados
+            val style = MaterialTheme.typography.bodyMedium
+
+            if (showEditor) {
+                OutlinedTextField(
+                    value = editorText,
+                    onValueChange = { editorText = it },
+                    label = { Text("Editar definición") },
+                    minLines = 3,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = sensEditorText,
+                    onValueChange = { sensEditorText = it },
+                    label = { Text("Sensaciones (separadas por comas)") },
+                    singleLine = false,
+                    minLines = 1,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Text(userDef.ifBlank { baseDef }, style = style)
+                Text(critDef, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (keyPhrases.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        keyPhrases.forEach { phrase -> Text("• $phrase", style = style) }
                     }
                 }
+                // 4º apartado: Sensaciones corporales (3)
+                val sens = if (userSens.isNotEmpty()) userSens else defaultSens
+                if (sens.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        sens.forEach { s -> Text("• $s", style = style) }
+                    }
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (showEditor) {
+                    TextButton(onClick = {
+                        val t = editorText.trim()
+                        val parsedSens = sensEditorText.split(",").map { it.trim() }
+                            .filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.take(3)
+                        onEditSaved(if (t.isBlank()) "" else t, if (parsedSens.isEmpty()) null else parsedSens)
+                        userDef = if (t.isBlank()) "" else t
+                        userSens = parsedSens
+                        showEditor = false
+                    }) { Text("Guardar") }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = { showEditor = false }) { Text("Cancelar") }
+                } else {
+                    TextButton(onClick = {
+                        editorText = (userDef.ifBlank { baseDef })
+                        sensEditorText = (if (userSens.isNotEmpty()) userSens else defaultSens).joinToString(", ")
+                        showEditor = true
+                    }) { Text("Editar") }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        onResetAll()
+                        userDef = ""
+                        userSens = emptyList()
+                        showEditor = false
+                    }) { Text("Restablecer") }
+                }
+            }
         }
     }
 }
