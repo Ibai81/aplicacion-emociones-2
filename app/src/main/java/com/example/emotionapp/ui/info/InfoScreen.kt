@@ -2,21 +2,19 @@ package com.example.emotionapp.ui.info
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.emotionapp.EmotionDef
 import com.example.emotionapp.defaultEmotionPalette
 import com.example.emotionapp.data.*
-import androidx.compose.ui.platform.LocalContext
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InfoScreen() {
     val context = LocalContext.current
@@ -29,7 +27,11 @@ fun InfoScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Información emocional", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Información emocional",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
 
         defaultEmotionPalette.forEach { def: EmotionDef ->
             EmotionInfoCard(
@@ -60,21 +62,20 @@ private fun EmotionInfoCard(
     val context = LocalContext.current
 
     var userDef by remember(key) { mutableStateOf(getUserEmotionDefinition(context, key).orEmpty()) }
-    val baseDef = remember(key) { getAdaptativeDefinition(key) }
-    val critDef = remember(key) { getCriticalDefinition(key) }
+    val unifiedDef = remember(key) { getUnifiedDefinition(key) } // ← NUEVO: definición única
     var userSens by remember(key) { mutableStateOf(getUserEmotionSensations(context, key) ?: emptyList()) }
     val defaultSens = remember(key) { getDefaultBodySensations(key) }
     val keyPhrases = remember(key) { getKeyPhrases(key).take(3) }
 
     var showEditor by remember(key) { mutableStateOf(false) }
-    var editorText by remember(key) { mutableStateOf(userDef.ifBlank { baseDef }) }
+    var editorText by remember(key) { mutableStateOf(userDef.ifBlank { unifiedDef }) }
     var sensEditorText by remember(key) { mutableStateOf((if (userSens.isNotEmpty()) userSens else defaultSens).joinToString(", ")) }
 
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-            // Misma tipografía/tamaño para los 4 apartados
+            // Estilo homogéneo para los apartados
             val style = MaterialTheme.typography.bodyMedium
 
             if (showEditor) {
@@ -96,14 +97,17 @@ private fun EmotionInfoCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                Text(userDef.ifBlank { baseDef }, style = style)
-                Text(critDef, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // ÚNICA definición (user -> unificada)
+                Text(userDef.ifBlank { unifiedDef }, style = style)
+
+                // Frases clave (3)
                 if (keyPhrases.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         keyPhrases.forEach { phrase -> Text("• $phrase", style = style) }
                     }
                 }
-                // 4º apartado: Sensaciones corporales (3)
+
+                // Sensaciones corporales (3)
                 val sens = if (userSens.isNotEmpty()) userSens else defaultSens
                 if (sens.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -131,7 +135,7 @@ private fun EmotionInfoCard(
                     OutlinedButton(onClick = { showEditor = false }) { Text("Cancelar") }
                 } else {
                     TextButton(onClick = {
-                        editorText = (userDef.ifBlank { baseDef })
+                        editorText = (userDef.ifBlank { unifiedDef })
                         sensEditorText = (if (userSens.isNotEmpty()) userSens else defaultSens).joinToString(", ")
                         showEditor = true
                     }) { Text("Editar") }

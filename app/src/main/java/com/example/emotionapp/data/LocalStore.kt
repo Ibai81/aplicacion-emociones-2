@@ -572,3 +572,103 @@ fun getDefaultBodySensations(key: String): List<String> = when (sanitizeEmotionK
 
 fun getBodySensations(context: Context, key: String): List<String> =
     getUserEmotionSensations(context, key) ?: getDefaultBodySensations(key)
+/* ====== Relaciones primarias ↔ secundarias (sugerencias con ejemplos) ====== */
+
+data class RelationHint(val to: String, val examples: List<String>)
+
+/** Normaliza clave/etiqueta para búsqueda. */
+private fun normEmotionKey(s: String): String = java.text.Normalizer
+    .normalize(s, java.text.Normalizer.Form.NFD)
+    .replace(Regex("\\p{Mn}+"), "")
+    .lowercase()
+
+/** Si PARTES de una PRIMARIA, ¿en qué SECUNDARIAS suele derivar? */
+fun relationHintsFromPrimary(labelOrKey: String): List<RelationHint> = when (normEmotionKey(labelOrKey)) {
+    "miedo" -> listOf(
+        RelationHint("Ansiedad", listOf("¿Y si sale mal? · Nudo estómago · Antes de hablar en público",
+            "Perder el control · Respiración rápida · Sitio nuevo")),
+        RelationHint("Preocupación", listOf("Darle vueltas · Tensión cuello · Noche previa a examen")),
+        RelationHint("Vergüenza", listOf("Notarán mi miedo · Rubor facial · Situación social"))
+    )
+    "tristeza" -> listOf(
+        RelationHint("Resignación", listOf("Para qué intentarlo · Pesadez · Tras varios fallos")),
+        RelationHint("Apatía", listOf("No me apetece nada · Baja energía · Días sin refuerzos")),
+        RelationHint("Desesperanza", listOf("Nada cambiará · Opresión pecho · Racha de estrés"))
+    )
+    "ira" -> listOf(
+        RelationHint("Frustración", listOf("Siempre me bloquean · Mandíbula tensa · Burocracia")),
+        RelationHint("Culpa", listOf("No debí hablar así · Calor que baja · Tras discusión")),
+        RelationHint("Rencor", listOf("No olvido lo que hizo · Tensión prolongada · Conflicto antiguo"))
+    )
+    "verguenza", "vergüenza" -> listOf(
+        RelationHint("Ansiedad", listOf("Se fijarán en mí · Mirada abajo · Exponer en grupo")),
+        RelationHint("Aislamiento", listOf("Mejor no voy · Cierre corporal · Grupo nuevo"))
+    )
+    "culpa" -> listOf(
+        RelationHint("Ansiedad", listOf("Cómo lo reparo · Nudo garganta · Error con impacto")),
+        RelationHint("Vergüenza", listOf("Qué pensarán de mí · Rubor · Error visible"))
+    )
+    "asco" -> listOf(
+        RelationHint("Desprecio", listOf("Inaceptable · Retraimiento · Norma vulnerada"))
+    )
+    "sorpresa" -> listOf(
+        RelationHint("Miedo", listOf("No lo esperaba y asusta · Sobresalto · Cambio brusco")),
+        RelationHint("Ansiedad", listOf("¿Y ahora qué hago? · Agitación · Imprevisto laboral"))
+    )
+    "interes", "interés" -> listOf(
+        RelationHint("Frustración", listOf("Quiero seguir pero no puedo · Tensión leve · Bloqueo externo"))
+    )
+    "alegria", "alegría" -> listOf(
+        RelationHint("Orgullo", listOf("Lo he conseguido · Ligereza · Tras un logro")),
+        RelationHint("Gratitud", listOf("Qué suerte tenerte · Calidez · Apoyo recibido"))
+    )
+    "desprecio" -> listOf(
+        RelationHint("Rencor", listOf("Volverá a pasar · Tensión crónica · Conflictos repetidos"))
+    )
+    else -> emptyList()
+}
+
+/** Si PARTES de una SECUNDARIA, ¿qué PRIMARIAS revisar como raíz probable? */
+fun relationRootsFromSecondary(labelOrKey: String): List<RelationHint> = when (normEmotionKey(labelOrKey)) {
+    "ansiedad" -> listOf(
+        RelationHint("Miedo", listOf("Algo puede ir mal · Resp. rápida · Exposición pública")),
+        RelationHint("Vergüenza", listOf("Me verán temblar · Rubor · Situación social"))
+    )
+    "frustracion", "frustración" -> listOf(
+        RelationHint("Ira", listOf("Me lo impiden · Mandíbula apretada · Bloqueos repetidos"))
+    )
+    "resignacion", "resignación" -> listOf(
+        RelationHint("Tristeza", listOf("Ya no espero nada · Baja energía · Resultados negativos"))
+    )
+    "apatia", "apatía" -> listOf(
+        RelationHint("Tristeza", listOf("Nada atrae · Pesadez · Falta de reforzadores"))
+    )
+    "verguenza", "vergüenza" -> listOf(
+        RelationHint("Miedo", listOf("Temo ser juzgado/a · Mirada baja · Exposición social"))
+    )
+    "culpa" -> listOf(
+        RelationHint("Ira", listOf("Me pasé de vueltas · Fatiga posterior · Conflicto previo")),
+        RelationHint("Tristeza", listOf("Hice daño/salió mal · Opresión · Lamento"))
+    )
+    "desesperanza" -> listOf(
+        RelationHint("Tristeza", listOf("Nada cambia · Opresión · Racha larga"))
+    )
+    "rencor" -> listOf(
+        RelationHint("Ira", listOf("No olvido la ofensa · Tensión crónica · Conflicto antiguo"))
+    )
+    else -> emptyList()
+}
+/* ====== Definición unificada (clara y actual) por emoción ====== */
+fun getUnifiedDefinition(key: String): String = when (sanitizeEmotionKey(key)) {
+    "alegria", "alegría" -> "La alegría señala bienestar y vínculo; te orienta a compartir y cuidar lo valioso."
+    "interes", "interés" -> "El interés enfoca tu atención y energía para explorar, aprender y crear significado."
+    "sorpresa" -> "La sorpresa reajusta tu atención ante lo inesperado para responder con rapidez."
+    "tristeza", "sufrimiento", "angustia", "distress" -> "La tristeza reconoce una pérdida o necesidad; pide pausa, apoyo y cuidado."
+    "ira" -> "La ira protege tus límites y valores; pide afirmar necesidades sin dañar."
+    "asco" -> "El asco aleja de lo que percibes como dañino o contaminante."
+    "desprecio" -> "El desprecio marca rechazo moral o de pertenencia; sostenido erosiona vínculos."
+    "verguenza", "vergüenza" -> "La vergüenza regula tu imagen ante otros; en exceso bloquea la expresión auténtica."
+    "culpa" -> "La culpa te orienta a reparar cuando haces daño o incumples tus valores."
+    "miedo" -> "El miedo protege ante amenaza; te pide evaluar, prepararte o pedir ayuda."
+    else -> "Emoción con función adaptativa: informa de necesidades y guía acciones."
+}

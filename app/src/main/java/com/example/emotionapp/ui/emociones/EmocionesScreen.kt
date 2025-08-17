@@ -34,8 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.emotionapp.EmotionDef
@@ -49,11 +49,10 @@ import com.example.emotionapp.data.addSensationsSuggestions
 import com.example.emotionapp.data.addTopicSuggestion
 import com.example.emotionapp.data.buildPatternsMessage
 import com.example.emotionapp.data.computePatterns
-import com.example.emotionapp.data.getAdaptativeDefinition
 import com.example.emotionapp.data.getBodySensations
-import com.example.emotionapp.data.getCriticalDefinition
 import com.example.emotionapp.data.getKeyPhrases
 import com.example.emotionapp.data.getShowDefsOnSelect
+import com.example.emotionapp.data.getUnifiedDefinition
 import com.example.emotionapp.data.getUserEmotionDefinition
 import com.example.emotionapp.data.loadPeopleSuggestions
 import com.example.emotionapp.data.loadPlaceSuggestions
@@ -61,6 +60,7 @@ import com.example.emotionapp.data.loadSensationsSuggestions
 import com.example.emotionapp.data.loadTopicSuggestions
 import com.example.emotionapp.data.saveEmotionEntryFileWithMoment
 import com.example.emotionapp.data.setShowDefsOnSelect
+import com.example.emotionapp.data.relatedSecondariesForPrimary
 import com.example.emotionapp.ui.training.TrainingStrip
 import androidx.compose.foundation.layout.imePadding
 
@@ -497,7 +497,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
         }
     }
 
-    // ===== Diálogo de intensidad =====
+    // ===== Diálogo de intensidad (0..5) con definición unificada =====
     val key = editingKey
     if (key != null) {
         val def = defaultEmotionPalette.firstOrNull { it.key == key }
@@ -508,8 +508,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
 
         // Textos de info (se renderizan solo si showDefs == true)
         val userDef = remember(key) { getUserEmotionDefinition(context, key) }
-        val adaptDef = remember(key) { getAdaptativeDefinition(key) }
-        val critDef  = remember(key) { getCriticalDefinition(key) }
+        val unifiedDef = remember(key) { getUnifiedDefinition(key) }
         val keyPhrases = remember(key) { getKeyPhrases(key).take(3) }
         val sensBody = remember(key) { getBodySensations(context, key).take(3) }
 
@@ -517,8 +516,16 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
             onDismissRequest = { editingKey = null },
             title = { Text("Intensidad: ${def?.label ?: key}") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Selector 0..5
+                val confDialog = LocalConfiguration.current
+                val maxDialogHeight = (confDialog.screenHeightDp * 0.7f).dp
+
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = maxDialogHeight)            // límite de altura
+                        .verticalScroll(rememberScrollState()),     // scroll vertical
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Selector 0..5 (FlowRow que envuelve si no cabe)
                     NumberPickerRow(selected = temp, onSelect = { temp = it.coerceIn(0, 5) })
 
                     // Info con MISMO formato/tamaño
@@ -541,15 +548,12 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                             }
 
                             if (showDefs) {
-                                val mainText = userDef?.takeIf { !it.isNullOrBlank() } ?: adaptDef
+                                val mainText = userDef?.takeIf { !it.isNullOrBlank() } ?: unifiedDef
                                 Text(mainText, style = style)
-                                Text(critDef, style = style)
 
                                 if (keyPhrases.isNotEmpty()) {
                                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        keyPhrases.forEach { phrase ->
-                                            Text("• $phrase", style = style)
-                                        }
+                                        keyPhrases.forEach { phrase -> Text("• $phrase", style = style) }
                                     }
                                 }
 
@@ -558,11 +562,43 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                                         sensBody.forEach { s -> Text("• $s", style = style) }
                                     }
                                 }
+
+                                // Relaciones frecuentes (primaria → secundarias) con ejemplos
+                                run {
+                                    val label = def?.label ?: key
+                                    val rels = remember(label) { relatedSecondariesForPrimary(label) }
+                                    if (rels.isNotEmpty()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            "Relaciones frecuentes",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            rels.forEach { r ->
+                                                Text("• $label → ${r.to}", style = style)
+                                                r.examples.take(2).forEach { ex ->
+                                                    Text(
+                                                        "   – Pensamiento: ${ex.thought}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        "     Cuerpo: ${ex.body} · Contexto: ${ex.context}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            },
+            }
+            ,
             dismissButton = {
                 TextButton(onClick = { selected.remove(key); editingKey = null }) { Text("Deseleccionar") }
             },
@@ -652,20 +688,21 @@ private fun AutoResizeText(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NumberPickerRow(selected: Int, onSelect: (Int) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        (0..5).forEach { n -> // 0..5
+        (0..5).forEach { n -> // 0..5 con wrap
             val isSel = n == selected
             val bg = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
             val fg = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
             Box(
                 modifier = Modifier
-                    .width(48.dp)
+                    .width(56.dp)      // un pelín más ancho para legibilidad
                     .height(40.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(bg)
@@ -675,6 +712,7 @@ private fun NumberPickerRow(selected: Int, onSelect: (Int) -> Unit) {
         }
     }
 }
+
 
 private fun calcularAnchoBoton(
     screenWidthDp: Dp,
