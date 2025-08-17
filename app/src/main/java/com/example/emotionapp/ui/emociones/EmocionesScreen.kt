@@ -1,5 +1,6 @@
 package com.example.emotionapp.ui.emociones
 
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -37,26 +38,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import android.content.res.Configuration
 import com.example.emotionapp.EmotionDef
 import com.example.emotionapp.defaultEmotionPalette
-import com.example.emotionapp.data.EmotionItem
 import com.example.emotionapp.data.EmotionEntry
+import com.example.emotionapp.data.EmotionItem
 import com.example.emotionapp.data.PatternsReport
 import com.example.emotionapp.data.addPeopleSuggestions
 import com.example.emotionapp.data.addPlaceSuggestion
 import com.example.emotionapp.data.addSensationsSuggestions
+import com.example.emotionapp.data.addTopicSuggestion
+import com.example.emotionapp.data.buildPatternsMessage
+import com.example.emotionapp.data.computePatterns
+import com.example.emotionapp.data.getAdaptativeDefinition
+import com.example.emotionapp.data.getBodySensations
+import com.example.emotionapp.data.getCriticalDefinition
+import com.example.emotionapp.data.getKeyPhrases
+import com.example.emotionapp.data.getShowDefsOnSelect
+import com.example.emotionapp.data.getUserEmotionDefinition
 import com.example.emotionapp.data.loadPeopleSuggestions
 import com.example.emotionapp.data.loadPlaceSuggestions
 import com.example.emotionapp.data.loadSensationsSuggestions
 import com.example.emotionapp.data.loadTopicSuggestions
-import com.example.emotionapp.data.addTopicSuggestion
 import com.example.emotionapp.data.saveEmotionEntryFileWithMoment
-import com.example.emotionapp.data.computePatterns
-import com.example.emotionapp.data.buildPatternsMessage
+import com.example.emotionapp.data.setShowDefsOnSelect
 import com.example.emotionapp.ui.training.TrainingStrip
+import androidx.compose.foundation.layout.imePadding
 
-/* ===== Saver para mantener selección ===== */
+/* ===== Saver para mantener selección de intensidades por emoción ===== */
 private val selectionSaver: Saver<SnapshotStateMap<String, Int>, Any> =
     Saver(
         save = { HashMap(it) },
@@ -67,7 +75,7 @@ private val selectionSaver: Saver<SnapshotStateMap<String, Int>, Any> =
         }
     )
 
-/* ===== Modelito local para patrones guardados por el usuario ===== */
+/* ===== Modelito local para patrones del usuario y sugeridos ===== */
 private const val PREFS_PATTERNS = "patterns_prefs"
 private const val KEY_PATTERNS_JSON = "patterns_json"
 
@@ -95,13 +103,13 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    // Selección estable y persistente
+    // Selección estable y persistente (por emoción 0..5)
     val selected: SnapshotStateMap<String, Int> = rememberSaveable(saver = selectionSaver) { mutableStateMapOf() }
-    var generalIntensity by rememberSaveable { mutableStateOf(3) } // intensidad general se mantiene en 1..5
+    var generalIntensity by rememberSaveable { mutableStateOf(3) } // 1..5
 
-    // Campos
+    // Campos de texto
     var place by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
-    var topic by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) } // NUEVO: Tema / contexto
+    var topic by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     var people by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     var thoughts by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     var actions by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
@@ -110,7 +118,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
 
     // Sugerencias persistentes
     var placeSugg by remember { mutableStateOf(loadPlaceSuggestions(context)) }
-    var topicsSugg by remember { mutableStateOf(loadTopicSuggestions(context)) } // NUEVO
+    var topicsSugg by remember { mutableStateOf(loadTopicSuggestions(context)) }
     var peopleSugg by remember { mutableStateOf(loadPeopleSuggestions(context)) }
     var sensationsSugg by remember { mutableStateOf(loadSensationsSuggestions(context)) }
 
@@ -118,7 +126,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
     var patterns by remember { mutableStateOf(loadPatterns(context)) }
     var selectedPatternName by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // Patrones sugeridos por la app (protegido con try/catch)
+    // Patrones sugeridos por la app (ligeros)
     var suggested by remember { mutableStateOf<List<EmotionPattern>>(emptyList()) }
     LaunchedEffect(Unit) {
         runCatching { computePatterns(context, minCount = 4) }
@@ -134,9 +142,10 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
             .onFailure { suggested = emptyList() }
     }
 
+    // Clave en edición para el diálogo de intensidad
     var editingKey by remember { mutableStateOf<String?>(null) }
-    val currentIntensity = editingKey?.let { selected[it] } ?: 0 // ahora 0 por defecto
 
+    // Layout responsivo
     val conf = LocalConfiguration.current
     val screenWidthDp = conf.screenWidthDp.dp
     val paddingExterior = 16.dp
@@ -147,7 +156,6 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
 
     val scroll = rememberScrollState()
 
-    // -------- Layout con overlay flotante --------
     Box(Modifier.fillMaxSize()) {
 
         // -------- CONTENIDO PRINCIPAL (scrolleable) --------
@@ -181,9 +189,9 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                         baseColor = getEmotionColor(emo.key),
                         width = buttonWidth,
                         height = buttonHeight,
-                        intensityLevel = levelIfSelected,
+                        intensityLevel = levelIfSelected, // 0..5
                         onTap = {
-                            if (levelIfSelected == null) selected[emo.key] = 0 // <<< AHORA 0 POR DEFECTO
+                            if (levelIfSelected == null) selected[emo.key] = 0 // empieza en 0
                             editingKey = emo.key
                         },
                         onLongPress = { if (levelIfSelected != null) selected.remove(emo.key) }
@@ -191,7 +199,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                 }
             }
 
-            // Seleccionadas (sección normal)
+            // Seleccionadas
             Column {
                 Text("Seleccionadas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 LazyVerticalGrid(
@@ -211,7 +219,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                             baseColor = getEmotionColor(key),
                             width = buttonWidth,
                             height = buttonHeight,
-                            intensityLevel = level,
+                            intensityLevel = level, // 0..5
                             onTap = { editingKey = key },
                             onLongPress = { selected.remove(key) }
                         )
@@ -219,7 +227,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                 }
             }
 
-            // Patrones sugeridos por la app (si hay)
+            // Patrones sugeridos (ligeros)
             if (suggested.isNotEmpty()) {
                 OutlinedCard {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -229,7 +237,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                                 AssistChip(
                                     onClick = {
                                         selected.clear()
-                                        p.items.forEach { selected[it.key] = it.intensity.coerceIn(0, 5) } // permite 0..5
+                                        p.items.forEach { selected[it.key] = it.intensity.coerceIn(0, 5) }
                                         generalIntensity = p.generalIntensity.coerceIn(1, 5)
                                         Toast.makeText(context, "Patrón aplicado: ${p.name}", Toast.LENGTH_SHORT).show()
                                     },
@@ -271,7 +279,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                                     Toast.makeText(context, "Elige un patrón.", Toast.LENGTH_SHORT).show()
                                 } else {
                                     selected.clear()
-                                    p.items.forEach { selected[it.key] = it.intensity.coerceIn(0, 5) } // permite 0..5
+                                    p.items.forEach { selected[it.key] = it.intensity.coerceIn(0, 5) }
                                     generalIntensity = p.generalIntensity.coerceIn(1, 5)
                                     Toast.makeText(context, "Patrón aplicado.", Toast.LENGTH_SHORT).show()
                                 }
@@ -285,7 +293,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                                 }
                                 val items = selected.map { (k, lvl) ->
                                     val def = defaultEmotionPalette.firstOrNull { it.key == k }
-                                    EmotionItem(k, def?.label ?: k, lvl.coerceIn(0, 5)) // permite 0..5
+                                    EmotionItem(k, def?.label ?: k, lvl.coerceIn(0, 5))
                                 }
                                 if (items.isEmpty()) {
                                     Toast.makeText(context, "Selecciona alguna emoción.", Toast.LENGTH_SHORT).show(); return@Button
@@ -311,11 +319,11 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                 }
             }
 
-            // ===== Intensidad general =====
+            // Intensidad general (1..5)
             Text("Intensidad general", style = MaterialTheme.typography.titleMedium)
-            NumberPickerRow(selected = generalIntensity, onSelect = { generalIntensity = it })
+            NumberPickerRow(selected = generalIntensity, onSelect = { generalIntensity = it.coerceIn(1, 5) })
 
-            // ===== Tema / contexto (NUEVO) =====
+            // Tema / contexto + sugerencias (máx 6)
             OutlinedTextField(
                 value = topic,
                 onValueChange = { topic = it },
@@ -325,7 +333,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
             )
             run {
                 val typed = topic.text.trim()
-                val visible = topicsSugg.filter { it.isNotBlank() && (typed.isEmpty() || it.contains(typed, ignoreCase = true)) }.take(12)
+                val visible = topicsSugg.filter { it.isNotBlank() && (typed.isEmpty() || it.contains(typed, ignoreCase = true)) }.take(6)
                 if (visible.isNotEmpty()) {
                     Text("Sugerencias de temas", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -334,11 +342,11 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                 }
             }
 
-            // ===== Lugar + sugerencias =====
+            // Lugar + sugerencias (máx 6)
             OutlinedTextField(place, { place = it }, label = { Text("Lugar") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             run {
                 val typed = place.text.trim()
-                val visible = placeSugg.filter { it.isNotBlank() && (typed.isEmpty() || it.contains(typed, ignoreCase = true)) }.take(12)
+                val visible = placeSugg.filter { it.isNotBlank() && (typed.isEmpty() || it.contains(typed, ignoreCase = true)) }.take(6)
                 if (visible.isNotEmpty()) {
                     Text("Sugerencias de lugares", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -347,71 +355,62 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                 }
             }
 
-            // ===== Personas + sugerencias =====
+            // Personas + sugerencias (máx 6, autocompleta último término)
             OutlinedTextField(people, { people = it }, label = { Text("Personas (separadas por comas)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             run {
-                val currentNames = parseCommaList(people.text)
-                val typedLast = people.text.substringAfterLast(",").trim()
+                val tokens = people.text.split(",").map { it.trim() }
+                val current = tokens.lastOrNull().orEmpty()
                 val visible = peopleSugg
-                    .filter { it.isNotBlank() && it !in currentNames }
-                    .filter { typedLast.isEmpty() || it.contains(typedLast, ignoreCase = true) }
-                    .take(16)
+                    .filter { it.isNotBlank() }
+                    .filter { current.isEmpty() || it.contains(current, ignoreCase = true) }
+                    .take(6)
                 if (visible.isNotEmpty()) {
                     Text("Sugerencias de personas", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        visible.forEach { name ->
-                            AssistChip(onClick = {
-                                val parts = people.text.split(",")
-                                val trimmed = parts.map { it.trim() }.toMutableList()
-                                if (trimmed.isEmpty() || (trimmed.size == 1 && trimmed[0].isEmpty())) {
-                                    people = TextFieldValue(name)
-                                } else {
-                                    if (typedLast.isNotEmpty()) trimmed[trimmed.lastIndex] = name
-                                    else if (trimmed.none { it.equals(name, ignoreCase = true) }) trimmed.add(name)
-                                    val final = dedupCaseInsensitive(trimmed)
-                                    people = TextFieldValue(final.joinToString(", "))
-                                }
-                            }, label = { Text(name) })
+                        visible.forEach { s ->
+                            AssistChip(
+                                onClick = {
+                                    val prefix = tokens.dropLast(1).filter { it.isNotBlank() }
+                                    val newText = (prefix + s).joinToString(", ")
+                                    people = TextFieldValue(newText)
+                                },
+                                label = { Text(s) }
+                            )
                         }
                     }
                 }
             }
 
-            // ===== Sensaciones corporales + sugerencias (tu flujo actual) =====
+            // Sensaciones corporales + sugerencias (máx 6, autocompleta último término)
             OutlinedTextField(notes, { notes = it }, label = { Text("Sensaciones corporales (separadas por comas)") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
             run {
-                val currentSens = parseCommaList(notes.text)
-                val typedLast = notes.text.substringAfterLast(",").trim()
+                val tokens = notes.text.split(",").map { it.trim() }
+                val current = tokens.lastOrNull().orEmpty()
                 val visible = sensationsSugg
-                    .filter { it.isNotBlank() && it !in currentSens }
-                    .filter { typedLast.isEmpty() || it.contains(typedLast, ignoreCase = true) }
-                    .take(16)
+                    .filter { it.isNotBlank() }
+                    .filter { current.isEmpty() || it.contains(current, ignoreCase = true) }
+                    .take(6)
                 if (visible.isNotEmpty()) {
                     Text("Sugerencias de sensaciones", style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         visible.forEach { s ->
-                            AssistChip(onClick = {
-                                val parts = notes.text.split(",")
-                                val trimmed = parts.map { it.trim() }.toMutableList()
-                                if (trimmed.isEmpty() || (trimmed.size == 1 && trimmed[0].isEmpty())) {
-                                    notes = TextFieldValue(s)
-                                } else {
-                                    if (typedLast.isNotEmpty()) trimmed[trimmed.lastIndex] = s
-                                    else if (trimmed.none { it.equals(s, ignoreCase = true) }) trimmed.add(s)
-                                    val final = dedupCaseInsensitive(trimmed)
-                                    notes = TextFieldValue(final.joinToString(", "))
-                                }
-                            }, label = { Text(s) })
+                            AssistChip(
+                                onClick = {
+                                    val prefix = tokens.dropLast(1).filter { it.isNotBlank() }
+                                    val newText = (prefix + s).joinToString(", ")
+                                    notes = TextFieldValue(newText)
+                                },
+                                label = { Text(s) }
+                            )
                         }
                     }
                 }
             }
 
-            // ===== Campos de situación, pensamientos, acciones, notas =====
+            // Campos descriptivos
             OutlinedTextField(situationFacts, { situationFacts = it }, label = { Text("Situación y hechos") }, modifier = Modifier.fillMaxWidth(), maxLines = 6)
             OutlinedTextField(thoughts, { thoughts = it }, label = { Text("Pensamientos") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
             OutlinedTextField(actions, { actions = it }, label = { Text("Qué hiciste") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
-            OutlinedTextField(notes, { notes = it }, label = { Text("Notas") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
 
             TrainingStrip(modifier = Modifier.fillMaxWidth())
 
@@ -423,14 +422,14 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                     }
                     val entry = EmotionEntry(
                         emotions = items,
-                        generalIntensity = generalIntensity,
+                        generalIntensity = generalIntensity.coerceIn(1, 5),
                         place = place.text,
                         people = people.text,
                         thoughts = thoughts.text,
                         actions = actions.text,
                         notes = notes.text,
                         situationFacts = situationFacts.text,
-                        topic = topic.text // NUEVO
+                        topic = topic.text
                     )
                     runCatching {
                         saveEmotionEntryFileWithMoment(context, entry, momentType = "reflexion", captureMode = "completa")
@@ -442,12 +441,12 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                         val sens = parseCommaList(notes.text)
                         if (sens.isNotEmpty()) addSensationsSuggestions(context, sens)
                         val t = topic.text.trim()
-                        if (t.isNotEmpty()) addTopicSuggestion(context, t) // NUEVO
+                        if (t.isNotEmpty()) addTopicSuggestion(context, t)
 
                         Toast.makeText(context, "Emoción guardada en gestor.", Toast.LENGTH_LONG).show()
-                        selected.clear(); // intensidades por emoción
+                        selected.clear()
                         place = TextFieldValue(""); people = TextFieldValue("")
-                        topic = TextFieldValue("") // limpia tema
+                        topic = TextFieldValue("")
                         thoughts = TextFieldValue(""); actions = TextFieldValue("")
                         notes = TextFieldValue(""); situationFacts = TextFieldValue("")
                         generalIntensity = 3
@@ -459,7 +458,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
             ) { Text("Guardar en gestor") }
         }
 
-        // -------- OVERLAY FLOTANTE (permanece a la vista) --------
+        // Overlay de chips con selección visible cuando se hace scroll
         val thresholdPx = with(density) { 320.dp.toPx() }
         val showFloating by remember { derivedStateOf { scroll.value > thresholdPx && selected.isNotEmpty() } }
         AnimatedVisibility(
@@ -488,7 +487,7 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
                             val def = defaultEmotionPalette.firstOrNull { it.key == key }
                             val level = selected[key] ?: 0
                             AssistChip(
-                                onClick = { /* opcional: abrir diálogo rápido */ },
+                                onClick = { /* noop */ },
                                 label = { Text("${def?.label ?: key} • $level") }
                             )
                         }
@@ -498,17 +497,81 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
         }
     }
 
-    // Diálogo de intensidad
+    // ===== Diálogo de intensidad =====
     val key = editingKey
     if (key != null) {
         val def = defaultEmotionPalette.firstOrNull { it.key == key }
-        var temp by remember(key) { mutableStateOf(currentIntensity.coerceIn(0, 5)) }
+        var temp by remember(key) { mutableStateOf((selected[key] ?: 0).coerceIn(0, 5)) } // 0..5
+
+        // Preferencia global persistente
+        var showDefs by remember { mutableStateOf(getShowDefsOnSelect(context)) }
+
+        // Textos de info (se renderizan solo si showDefs == true)
+        val userDef = remember(key) { getUserEmotionDefinition(context, key) }
+        val adaptDef = remember(key) { getAdaptativeDefinition(key) }
+        val critDef  = remember(key) { getCriticalDefinition(key) }
+        val keyPhrases = remember(key) { getKeyPhrases(key).take(3) }
+        val sensBody = remember(key) { getBodySensations(context, key).take(3) }
+
         AlertDialog(
             onDismissRequest = { editingKey = null },
             title = { Text("Intensidad: ${def?.label ?: key}") },
-            text = { NumberPickerRow(selected = temp, onSelect = { temp = it }) },
-            dismissButton = { TextButton(onClick = { selected.remove(key); editingKey = null }) { Text("Deseleccionar") } },
-            confirmButton = { TextButton(onClick = { selected[key] = temp; editingKey = null }) { Text("Aceptar") } }
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Selector 0..5
+                    NumberPickerRow(selected = temp, onSelect = { temp = it.coerceIn(0, 5) })
+
+                    // Info con MISMO formato/tamaño
+                    val style = MaterialTheme.typography.bodyMedium
+
+                    ElevatedCard {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = {
+                                    val newValue = !showDefs
+                                    showDefs = newValue
+                                    setShowDefsOnSelect(context, newValue)
+                                }) {
+                                    Text(if (showDefs) "Ocultar info" else "Mostrar info")
+                                }
+                            }
+
+                            if (showDefs) {
+                                val mainText = userDef?.takeIf { !it.isNullOrBlank() } ?: adaptDef
+                                Text(mainText, style = style)
+                                Text(critDef, style = style)
+
+                                if (keyPhrases.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        keyPhrases.forEach { phrase ->
+                                            Text("• $phrase", style = style)
+                                        }
+                                    }
+                                }
+
+                                if (sensBody.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        sensBody.forEach { s -> Text("• $s", style = style) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selected.remove(key); editingKey = null }) { Text("Deseleccionar") }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    selected[key] = temp // 0..5
+                    editingKey = null
+                }) { Text("Aceptar") }
+            }
         )
     }
 }
@@ -516,16 +579,6 @@ fun EmotionScreen(getEmotionColor: (String) -> Color) {
 /* -------------------- Utils -------------------- */
 private fun parseCommaList(raw: String): List<String> =
     raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }
-
-private fun dedupCaseInsensitive(items: List<String>): List<String> {
-    val seen = mutableSetOf<String>()
-    val out = mutableListOf<String>()
-    for (s in items.map { it.trim() }.filter { it.isNotEmpty() }) {
-        val k = s.lowercase()
-        if (seen.add(k)) out.add(s)
-    }
-    return out
-}
 
 /* ---- UI auxiliares ---- */
 @Composable
@@ -538,7 +591,7 @@ private fun EmotionBarButton(
     onTap: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    val level = intensityLevel?.coerceIn(0, 5) ?: 0
+    val level = intensityLevel?.coerceIn(0, 5) ?: 0 // 0..5
     val bgColor = MaterialTheme.colorScheme.surfaceVariant
     val shape = RoundedCornerShape(12.dp)
 
@@ -581,7 +634,6 @@ private fun AutoResizeText(
     maxLines: Int,
     minTextSize: TextUnit = 10.sp,
     maxTextSize: TextUnit = 18.sp,
-    step: TextUnit = 1.sp
 ) {
     var textSize by remember(text) { mutableStateOf(maxTextSize) }
     Text(
@@ -594,7 +646,7 @@ private fun AutoResizeText(
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { r ->
             if (r.hasVisualOverflow && textSize > minTextSize) {
-                textSize = (textSize.value - step.value).sp
+                textSize = (textSize.value - 1).sp
             }
         }
     )
@@ -607,7 +659,7 @@ private fun NumberPickerRow(selected: Int, onSelect: (Int) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        (0..5).forEach { n -> // <<< AHORA 0..5
+        (0..5).forEach { n -> // 0..5
             val isSel = n == selected
             val bg = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
             val fg = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant

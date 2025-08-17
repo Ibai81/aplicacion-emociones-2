@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import androidx.core.net.toUri
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -33,11 +32,6 @@ private fun nowStamp(): String {
     return sdf.format(Date())
 }
 
-private fun todayYmd(): String {
-    val sdf = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
-    return sdf.format(Date())
-}
-
 private fun sanitizeSegment(raw: String): String =
     raw.lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9_-]"), "")
 
@@ -46,7 +40,7 @@ private fun firstWordPlace(place: String?): String {
     return sanitizeSegment(fw)
 }
 
-/* ================== MODELOS (canon en data) ================== */
+/* ================== MODELOS ================== */
 
 data class EmotionItem(val key: String, val label: String, val intensity: Int)
 
@@ -59,7 +53,7 @@ data class EmotionEntry(
     val actions: String,
     val notes: String,
     val situationFacts: String = "",
-    val topic: String = ""            // NUEVO (opcional en JSON antiguo)
+    val topic: String = ""
 )
 
 /* ================== Guardado/carga de EMOCIONES ================== */
@@ -80,8 +74,8 @@ fun saveEmotionEntryFile(context: Context, entry: EmotionEntry): File {
 fun saveEmotionEntryFileWithMoment(
     context: Context,
     entry: EmotionEntry,
-    momentType: String,            // "instantanea" | "reflexion"
-    captureMode: String = "completa" // "rapida" | "completa" | "texto"
+    momentType: String,
+    captureMode: String = "completa"
 ): File {
     val base = "e_${firstWordPlace(entry.place)}_${nowStamp()}"
     val file = File(entriesDir(context), "$base.json")
@@ -93,13 +87,13 @@ fun saveEmotionEntryFileWithMoment(
     file.writeText(gson.toJson(tree))
     return file
 }
-// NUEVO: guarda la emoción fijando el sello temporal del nombre (YYYYMMDD_HHMM)
+
 fun saveEmotionEntryFileWithMomentAt(
     context: Context,
     entry: EmotionEntry,
-    momentType: String,             // "instantanea" | "reflexion"
+    momentType: String,
     captureMode: String = "completa",
-    atStamp: String                 // "YYYYMMDD_HHMM" (del audio origen)
+    atStamp: String
 ): File {
     val base = "e_${firstWordPlace(entry.place)}_${atStamp}"
     val file = File(entriesDir(context), "$base.json")
@@ -119,7 +113,6 @@ fun loadEmotionEntry(context: Context, jsonFile: File): EmotionEntry =
 
 data class AudioMeta(val description: String, val generalIntensity: Int, val place: String)
 
-/** Formato clásico: a_<lugar>_<YYYYMMDD>_<HHMM>.(m4a|json) */
 fun saveAudioEntryFiles(
     context: Context,
     source: Uri,
@@ -143,7 +136,6 @@ fun loadAudioMeta(context: Context, baseName: String): AudioMeta? {
 
 fun fileUri(file: File): Uri = file.toUri()
 
-/** Copia binario del audio “pegado” a una emoción e_<...>.json => e_<...>.m4a */
 fun copyAudioAlongEmotionBase(context: Context, source: Uri, emotionJsonFile: File): File {
     val base = emotionJsonFile.nameWithoutExtension
     val audioFile = File(entriesDir(context), "$base.m4a")
@@ -170,7 +162,7 @@ private fun copyUriToFile(resolver: ContentResolver, uri: Uri, dest: File) {
 /* ================== Listados ================== */
 
 data class EntryFile(val file: File, val isEmotion: Boolean, val baseName: String)
-// ===== Borrado de entrada (JSON) + audio emparejado (si existe) =====
+
 fun deleteEmotionAndMedia(context: Context, baseName: String): Boolean {
     val dir = entriesDir(context)
     var ok = true
@@ -180,6 +172,7 @@ fun deleteEmotionAndMedia(context: Context, baseName: String): Boolean {
     if (audio.exists()) ok = audio.delete() && ok
     return ok
 }
+
 fun listEmotionFiles(context: Context): List<EntryFile> =
     entriesDir(context).listFiles()
         ?.filter { it.isFile && it.name.startsWith("e_") && it.name.endsWith(".json") }
@@ -187,7 +180,6 @@ fun listEmotionFiles(context: Context): List<EntryFile> =
         ?.sortedByDescending { it.file.lastModified() }
         ?: emptyList()
 
-/** Acepta audios antiguos (a_*.m4a) y nuevos emparejados con emoción (e_*.m4a). */
 fun listAudioFiles(context: Context): List<EntryFile> =
     entriesDir(context).listFiles()
         ?.filter { it.isFile && it.name.endsWith(".m4a") && (it.name.startsWith("a_") || it.name.startsWith("e_")) }
@@ -212,10 +204,8 @@ fun addTopicSuggestion(context: Context, topic: String) {
     mergeUniqueCaseInsensitive(list, listOf(topic))
     writeStringList(context, KEY_TOPICS, list)
 }
-
 fun replaceTopicSuggestions(context: Context, items: List<String>) =
     writeStringList(context, KEY_TOPICS, sanitizeListKeepOrder(items))
-
 
 private fun prefs(context: Context) = context.getSharedPreferences(PREFS_SUGG, Context.MODE_PRIVATE)
 
@@ -232,14 +222,14 @@ private fun writeStringList(context: Context, key: String, list: List<String>) {
 private fun normalize(s: String) = s.trim()
 
 private fun sanitizeListKeepOrder(list: List<String>): List<String> {
-    val out = mutableListOf<String>();
-    val seen = mutableSetOf<String>();
+    val out = mutableListOf<String>()
+    val seen = mutableSetOf<String>()
     for (it in list.map(::normalize).filter { it.isNotEmpty() }) {
-        val k = it.lowercase(Locale.getDefault());
-        if (seen.add(k)) out.add(it);
-        if (out.size >= MAX_SUGGESTIONS) break;
+        val k = it.lowercase(Locale.getDefault())
+        if (seen.add(k)) out.add(it)
+        if (out.size >= MAX_SUGGESTIONS) break
     }
-    return out;
+    return out
 }
 
 private fun mergeUniqueCaseInsensitive(base: MutableList<String>, incoming: List<String>) {
@@ -286,12 +276,12 @@ fun addSensationsSuggestions(context: Context, sensations: List<String>) {
 fun replaceSensationsSuggestions(context: Context, items: List<String>) =
     writeStringList(context, KEY_SENSATIONS, sanitizeListKeepOrder(items))
 
-/* ================== Parseo de nombres (ambos formatos) ================== */
+/* ================== Parseo de nombres ================== */
 
 data class ParsedName(
     val type: String,
     val place: String,
-    val dateStamp: String, // YYYYMMDD_HHMM
+    val dateStamp: String,
     val year: Int?, val month: Int?
 )
 
@@ -301,7 +291,6 @@ fun parseBaseName(base: String): ParsedName {
     val parts = base.split("_")
     if (parts.isEmpty()) return ParsedName(base, "sinlugar", "", null, null)
     val t = parts[0]
-    // nuevo: e_<lugar>_<YYYYMMDD>_<HHMM>
     if (parts.size >= 3 && dateRegex.matches(parts.takeLast(2).joinToString("_"))) {
         val date = parts.takeLast(2).joinToString("_")
         val place = parts.drop(1).dropLast(2).joinToString("_").ifBlank { "sinlugar" }
@@ -309,7 +298,6 @@ fun parseBaseName(base: String): ParsedName {
         val m = date.substring(4, 6).toIntOrNull()
         return ParsedName(t, place, date, y, m)
     }
-    // antiguo: e_<YYYYMMDD>_<HHMM>_<lugar>
     if (parts.size >= 3 && dateRegex.matches(parts[1] + "_" + parts[2])) {
         val date = parts[1] + "_" + parts[2]
         val place = parts.drop(3).joinToString("_").ifBlank { "sinlugar" }
@@ -329,9 +317,8 @@ fun listPlacesFromFiles(context: Context): List<String> {
     return set.toList()
 }
 
-/* ================== Exportar / Importar ZIP ================== */
+/* ================== Exportar / Importar ZIP (locales y SAF) ================== */
 
-/** Exporta a un ZIP usando el selector del sistema (SAF). */
 @Throws(IOException::class)
 fun exportEntriesToZip(context: Context, destUri: Uri) {
     val root = entriesDir(context)
@@ -347,52 +334,6 @@ fun exportEntriesToZip(context: Context, destUri: Uri) {
     } ?: throw IOException("No se pudo abrir destino para escribir.")
 }
 
-/** Exporta a un ZIP local dentro de /Documents de la app y devuelve el File. */
-@Throws(IOException::class)
-fun exportEntriesToLocalZip(context: Context): File {
-    val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Exportaciones_emolog")
-    if (!baseDir.exists()) baseDir.mkdirs()
-    val outFile = File(baseDir, "backup_emolog_${nowStamp()}.zip")
-    ZipOutputStream(BufferedOutputStream(FileOutputStream(outFile))).use { zos ->
-        val root = entriesDir(context)
-        root.walkTopDown().filter { it.isFile }.forEach { file ->
-            val rel = root.toPath().relativize(file.toPath()).toString().replace("\\", "/")
-            zos.putNextEntry(ZipEntry(rel))
-            FileInputStream(file).use { it.copyTo(zos, 8 * 1024) }
-            zos.closeEntry()
-        }
-    }
-    return outFile
-}
-
-/** NUEVO: Exporta un subconjunto de bases a un ZIP con nombre controlado. */
-@Throws(IOException::class)
-fun exportEntriesToLocalZipSubset(context: Context, baseNames: Set<String>?, outName: String): File {
-    val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Exportaciones_emolog")
-    if (!baseDir.exists()) baseDir.mkdirs()
-    val safe = outName.trim().lowercase(Locale.getDefault()).replace(Regex("[^a-z0-9._-]"), "_")
-    val finalName = if (safe.endsWith(".zip")) safe else "$safe.zip"
-    val outFile = File(baseDir, finalName)
-
-    val root = entriesDir(context)
-    val allFiles = root.listFiles()?.filter { it.isFile } ?: emptyList()
-    val allowedBases = baseNames?.toSet()
-
-    ZipOutputStream(BufferedOutputStream(FileOutputStream(outFile))).use { zos ->
-        for (f in allFiles) {
-            val base = f.nameWithoutExtension
-            val include = if (allowedBases == null) true else allowedBases.contains(base)
-            if (!include) continue
-            val rel = root.toPath().relativize(f.toPath()).toString().replace("\\", "/")
-            zos.putNextEntry(ZipEntry(rel))
-            FileInputStream(f).use { it.copyTo(zos, 8 * 1024) }
-            zos.closeEntry()
-        }
-    }
-    return outFile
-}
-
-/** Importa desde un ZIP seleccionado con SAF. */
 @Throws(IOException::class)
 fun importEntriesFromZip(context: Context, srcUri: Uri) {
     val root = entriesDir(context)
@@ -401,9 +342,7 @@ fun importEntriesFromZip(context: Context, srcUri: Uri) {
             var entry: ZipEntry? = zis.nextEntry
             while (entry != null) {
                 val outFile = File(root, entry.name.substringAfterLast("/"))
-                if (!entry.isDirectory) {
-                    FileOutputStream(outFile).use { fos -> zis.copyTo(fos, 8 * 1024) }
-                }
+                if (!entry.isDirectory) FileOutputStream(outFile).use { fos -> zis.copyTo(fos, 8 * 1024) }
                 zis.closeEntry()
                 entry = zis.nextEntry
             }
@@ -411,31 +350,7 @@ fun importEntriesFromZip(context: Context, srcUri: Uri) {
     } ?: throw IOException("No se pudo abrir el ZIP de origen.")
 }
 
-/** NUEVO: Importa desde un ZIP local (File). Sobrescribe si existe. */
-@Throws(IOException::class)
-fun importEntriesFromLocalZip(context: Context, zipFile: File) {
-    val root = entriesDir(context)
-    ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
-        var entry: ZipEntry? = zis.nextEntry
-        while (entry != null) {
-            val outFile = File(root, entry.name.substringAfterLast("/"))
-            if (!entry.isDirectory) {
-                FileOutputStream(outFile).use { fos -> zis.copyTo(fos, 8 * 1024) }
-            }
-            zis.closeEntry()
-            entry = zis.nextEntry
-        }
-    }
-}
-
-/** NUEVO: Lista de backups .zip locales en la carpeta Exportaciones_emolog */
-fun listLocalBackups(context: Context): List<File> {
-    val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Exportaciones_emolog")
-    if (!baseDir.exists()) return emptyList()
-    return baseDir.listFiles()?.filter { it.isFile && it.name.endsWith(".zip", ignoreCase = true) }?.sortedByDescending { it.lastModified() } ?: emptyList()
-}
-
-/* ================== Resumen para IA ================== */
+/* ================== Resúmenes ================== */
 
 data class SummaryEmotion(
     val file: String,
@@ -520,57 +435,6 @@ fun buildEntriesSummary(context: Context): String {
     return gson.toJson(payload)
 }
 
-/** NUEVO: resumen filtrado por baseNames (null = todo) */
-fun buildEntriesSummaryFor(context: Context, baseFilter: Set<String>?): String {
-    val gson = Gson()
-    val filter = baseFilter?.toSet()
-
-    val emos = listEmotionFiles(context).filter { filter == null || filter.contains(it.baseName) }.mapNotNull { ef ->
-        runCatching {
-            val entry = loadEmotionEntry(context, ef.file)
-            val (lugar, fecha) = extractPlaceAndDate(ef.baseName)
-
-            val text = ef.file.readText()
-            val sensations: List<String> = try {
-                val obj = JsonParser.parseString(text).asJsonObject
-                if (obj.has("sensations") && obj.get("sensations").isJsonArray)
-                    gson.fromJson(obj.get("sensations"), object : TypeToken<List<String>>() {}.type)
-                else splitNotesToSensations(obj.get("notes")?.asString)
-            } catch (_: Exception) {
-                splitNotesToSensations(entry.notes)
-            }
-
-            SummaryEmotion(
-                file = ef.file.name,
-                lugar = lugar,
-                fecha = fecha,
-                generalIntensity = entry.generalIntensity,
-                sensations = sensations,
-                emotions = entry.emotions.map { mapOf("key" to it.key, "label" to it.label, "intensity" to it.intensity) },
-                people = entry.people,
-                thoughts = entry.thoughts,
-                actions = entry.actions,
-                situationFacts = entry.situationFacts
-            )
-        }.getOrNull()
-    }
-
-    val auds = listAudioFiles(context).filter { filter == null || filter.contains(it.baseName) }.mapNotNull { af ->
-        val meta = loadAudioMeta(context, af.baseName) ?: return@mapNotNull null
-        val (lugar, fecha) = extractPlaceAndDate(af.baseName)
-        SummaryAudio(
-            file = af.file.name,
-            lugar = lugar,
-            fecha = fecha,
-            generalIntensity = meta.generalIntensity,
-            description = meta.description
-        )
-    }
-
-    val payload = mapOf("emociones" to emos, "audios" to auds)
-    return gson.toJson(payload)
-}
-
 fun copySummaryToClipboard(context: Context): String {
     val text = buildEntriesSummary(context)
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -578,183 +442,133 @@ fun copySummaryToClipboard(context: Context): String {
     return text
 }
 
-/** NUEVO: copia resumen filtrado al portapapeles */
-fun copySummaryToClipboardFor(context: Context, baseFilter: Set<String>?): String {
-    val text = buildEntriesSummaryFor(context, baseFilter)
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("Resumen Emolog", text))
-    return text
+/* ==================== Info de emociones ==================== */
+
+private const val PREFS_EMOINFO = "emotion_info_prefs"
+private const val KEY_SHOW_DEFS = "cfg_show_def_on_select"
+private const val PREFIX_SILENCED = "silenced_"
+private const val PREFIX_USERDEF = "userdef_"
+private const val PREFIX_USERSENS = "usersens_" // ← sensaciones personalizadas por emoción
+
+fun getShowDefsOnSelect(context: Context): Boolean {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    return sp.getBoolean(KEY_SHOW_DEFS, true)
+}
+fun setShowDefsOnSelect(context: Context, value: Boolean) {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    val prev = sp.getBoolean(KEY_SHOW_DEFS, true)
+    sp.edit().putBoolean(KEY_SHOW_DEFS, value).apply()
+    if (value && !prev) clearAllEmotionSilences(context)
 }
 
-/* ================== Motor de patrones (Reflexión) ================== */
-
-data class PatternItem(val name: String, val count: Int, val avgIntensity: Double)
-data class PatternsReport(
-    val totalEntries: Int,
-    val places: List<PatternItem>,
-    val people: List<PatternItem>,
-    val sensations: List<PatternItem>,
-    val emotions: List<PatternItem>
-)
-
-private const val PREFS_ANALYTICS = "analytics_prefs"
-private const val KEY_PATTERNS_SHOWN_AT9 = "patterns_shown_once_after_8"
-
-fun shouldShowPatternsNow(context: Context): Boolean {
-    val total = listEmotionFiles(context).size
-    val shown = context.getSharedPreferences(PREFS_ANALYTICS, Context.MODE_PRIVATE)
-        .getBoolean(KEY_PATTERNS_SHOWN_AT9, false)
-    return total >= 9 && !shown
-}
-fun markPatternsShown(context: Context) {
-    context.getSharedPreferences(PREFS_ANALYTICS, Context.MODE_PRIVATE)
-        .edit().putBoolean(KEY_PATTERNS_SHOWN_AT9, true).apply()
+private fun sanitizeEmotionKey(key: String): String {
+    val norm = java.text.Normalizer.normalize(key, java.text.Normalizer.Form.NFD)
+    return norm.replace(Regex("\\p{Mn}+"), "").lowercase()
 }
 
-fun computePatterns(context: Context, minCount: Int = 8): PatternsReport {
-    val files = listEmotionFiles(context)
-    val total = files.size
-    val gson = Gson()
+fun isEmotionSilenced(context: Context, key: String): Boolean {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    return sp.getBoolean(PREFIX_SILENCED + sanitizeEmotionKey(key), false)
+}
+fun setEmotionSilenced(context: Context, key: String, value: Boolean) {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    sp.edit().putBoolean(PREFIX_SILENCED + sanitizeEmotionKey(key), value).apply()
+}
+fun clearAllEmotionSilences(context: Context) {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    val editor = sp.edit()
+    for (k in sp.all.keys) if (k.startsWith(PREFIX_SILENCED)) editor.remove(k)
+    editor.apply()
+}
 
-    val placeCount = mutableMapOf<String, MutableList<Int>>()
-    val peopleCount = mutableMapOf<String, MutableList<Int>>()
-    val sensCount = mutableMapOf<String, MutableList<Int>>()
-    val emoCount = mutableMapOf<String, MutableList<Int>>()
+fun getUserEmotionDefinition(context: Context, key: String): String? {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    return sp.getString(PREFIX_USERDEF + sanitizeEmotionKey(key), null)
+}
+fun setUserEmotionDefinition(context: Context, key: String, value: String?) {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    val e = sp.edit()
+    if (value.isNullOrBlank()) e.remove(PREFIX_USERDEF + sanitizeEmotionKey(key)) else e.putString(PREFIX_USERDEF + sanitizeEmotionKey(key), value)
+    e.apply()
+}
 
-    for (ef in files) {
-        val text = ef.file.readText()
-        val obj: JsonObject = try { JsonParser.parseString(text).asJsonObject } catch (_: Exception) { continue }
-        val entry = try { gson.fromJson(text, EmotionEntry::class.java) } catch (_: Exception) { continue }
-        val intensity = entry.generalIntensity.coerceIn(1, 5)
-
-        val lugar = entry.place.trim().ifEmpty { "sin lugar" }
-        placeCount.getOrPut(lugar) { mutableListOf() }.add(intensity)
-
-        entry.people.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { p ->
-            peopleCount.getOrPut(p) { mutableListOf() }.add(intensity)
-        }
-
-        val sensations: List<String> = try {
-            if (obj.has("sensations") && obj.get("sensations").isJsonArray)
-                gson.fromJson(obj.get("sensations"), object : TypeToken<List<String>>() {}.type)
-            else splitNotesToSensations(obj.get("notes")?.asString)
-        } catch (_: Exception) {
-            splitNotesToSensations(entry.notes)
-        }
-        sensations.forEach { s -> sensCount.getOrPut(s) { mutableListOf() }.add(intensity) }
-
-        entry.emotions.forEach { e -> emoCount.getOrPut(e.label) { mutableListOf() }.add(e.intensity.coerceIn(1,5)) }
+// Sensaciones personalizadas por emoción (CSV en prefs)
+fun getUserEmotionSensations(context: Context, key: String): List<String>? {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    val csv = sp.getString(PREFIX_USERSENS + sanitizeEmotionKey(key), null) ?: return null
+    return csv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.take(3)
+}
+fun setUserEmotionSensations(context: Context, key: String, value: List<String>?) {
+    val sp = context.getSharedPreferences(PREFS_EMOINFO, Context.MODE_PRIVATE)
+    val e = sp.edit()
+    if (value == null || value.isEmpty()) {
+        e.remove(PREFIX_USERSENS + sanitizeEmotionKey(key))
+    } else {
+        val csv = value.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.take(3).joinToString(", ")
+        e.putString(PREFIX_USERSENS + sanitizeEmotionKey(key), csv)
     }
-
-    fun mapToItems(m: Map<String, List<Int>>): List<PatternItem> =
-        m.entries
-            .map { (k, v) -> PatternItem(k, v.size, ((v.average() * 10.0).roundToInt() / 10.0)) }
-            .filter { it.count >= minCount }
-            .sortedWith(compareByDescending<PatternItem> { it.count }.thenByDescending { it.avgIntensity })
-
-    return PatternsReport(
-        totalEntries = total,
-        places = mapToItems(placeCount),
-        people = mapToItems(peopleCount),
-        sensations = mapToItems(sensCount),
-        emotions = mapToItems(emoCount)
-    )
+    e.apply()
 }
 
-fun buildPatternsMessage(report: PatternsReport, topPerGroup: Int = 3): String {
-    if (report.totalEntries < 8) return "Aún no hay suficientes entradas para proponer patrones (necesitamos al menos 8)."
-    val sb = StringBuilder()
-    fun addBlock(title: String, list: List<PatternItem>) {
-        val top = list.take(topPerGroup)
-        if (top.isNotEmpty()) {
-            sb.appendLine("• $title")
-            for (it in top) sb.appendLine("   - ${it.name}: ${it.count} apariciones (intensidad media ${"%.1f".format(Locale.getDefault(), it.avgIntensity)})")
-        }
-    }
-    addBlock("Lugares frecuentes", report.places)
-    addBlock("Personas asociadas", report.people)
-    addBlock("Sensaciones corporales repetidas", report.sensations)
-    addBlock("Emociones predominantes", report.emotions)
-    return if (sb.isEmpty()) "Hay suficientes entradas, pero aún no se detectan patrones claros con ≥8 observaciones." else sb.toString()
-}
-/* … (todo tu archivo tal como estaba) … */
-
-/* ================== PREFILL / NAV BRIDGE ================== */
-
-private const val PREFS_PREFILL = "prefill_bus"
-private const val KEY_PREFILL_PLACE = "prefill_place"
-private const val KEY_PREFILL_NOTES = "prefill_notes"
-private const val KEY_PREFILL_INT = "prefill_intensity"
-private const val KEY_PREFILL_FROM_AUDIO = "prefill_from_audio"
-private const val KEY_PREFILL_PENDING_OPEN = "prefill_pending_open"
-
-data class EmotionPrefill(
-    val place: String,
-    val notes: String,
-    val generalIntensity: Int,
-    val fromAudioBase: String?
-)
-
-/** Guardar un pre-relleno en preferencias a partir de una entrada de audio existente.
- *  Además marca la intención de abrir la pestaña Emociones.
- */
-fun setEmotionPrefillFromAudio(context: Context, baseName: String): Boolean {
-    val meta = loadAudioMeta(context, baseName) ?: return false
-    val (placeFromBase, _) = extractPlaceAndDate(baseName)
-    val place = if (meta.place.isNotBlank()) meta.place else placeFromBase
-    val prefs = context.getSharedPreferences(PREFS_PREFILL, Context.MODE_PRIVATE)
-    prefs.edit()
-        .putString(KEY_PREFILL_PLACE, place)
-        .putString(KEY_PREFILL_NOTES, meta.description)
-        .putInt(KEY_PREFILL_INT, meta.generalIntensity.coerceIn(1,5))
-        .putString(KEY_PREFILL_FROM_AUDIO, baseName)
-        .putBoolean(KEY_PREFILL_PENDING_OPEN, true)
-        .apply()
-    return true
+// Definiciones adaptativas (breves)
+fun getAdaptativeDefinition(key: String): String = when (sanitizeEmotionKey(key)) {
+    "alegria" -> "Facilita el vínculo social y motiva a repetir conductas placenteras."
+    "interes" -> "Dirige la atención, impulsa la curiosidad y el aprendizaje."
+    "sorpresa" -> "Redirige la atención ante lo inesperado para responder rápido."
+    "tristeza", "sufrimiento", "angustia", "distress" -> "Señala pérdida o necesidad de apoyo, fomenta empatía en otros."
+    "ira" -> "Prepara para defender límites y responder ante la injusticia."
+    "asco" -> "Protege evitando sustancias o situaciones potencialmente dañinas."
+    "desprecio" -> "Señala rechazo social ante violaciones de normas o valores."
+    "verguenza", "vergüenza" -> "Regula la pertenencia al grupo al inhibir conductas rechazadas socialmente."
+    "culpa" -> "Promueve la reparación tras dañar a otros."
+    "miedo" -> "Activa conductas de protección: huida, cautela, preparación ante amenaza."
+    else -> "Emoción básica con función adaptativa."
 }
 
-/** Consumir y limpiar el pre-relleno (si existe). */
-fun consumeEmotionPrefill(context: Context): EmotionPrefill? {
-    val prefs = context.getSharedPreferences(PREFS_PREFILL, Context.MODE_PRIVATE)
-    val from = prefs.getString(KEY_PREFILL_FROM_AUDIO, null)
-    val hasAny = prefs.contains(KEY_PREFILL_PLACE) || prefs.contains(KEY_PREFILL_NOTES) || from != null
-    if (!hasAny) return null
-    val place = prefs.getString(KEY_PREFILL_PLACE, "") ?: ""
-    val notes = prefs.getString(KEY_PREFILL_NOTES, "") ?: ""
-    val gi = prefs.getInt(KEY_PREFILL_INT, 3)
-    // limpiamos todo pero conservamos pending_open si estuviera activo
-    val pending = prefs.getBoolean(KEY_PREFILL_PENDING_OPEN, false)
-    prefs.edit().clear().apply()
-    if (pending) context.getSharedPreferences(PREFS_PREFILL, Context.MODE_PRIVATE)
-        .edit().putBoolean(KEY_PREFILL_PENDING_OPEN, true).apply()
-    return EmotionPrefill(place, notes, gi, from)
+// Crítica actual
+fun getCriticalDefinition(key: String): String = when (sanitizeEmotionKey(key)) {
+    "alegria" -> "Funcional; en exceso invisibiliza otras emociones necesarias."
+    "interes" -> "Clave para crecer; en exceso dispersa y agota."
+    "sorpresa" -> "Ayuda a reajustar; constante genera inestabilidad."
+    "tristeza", "sufrimiento", "angustia", "distress" -> "Elabora pérdidas; cronificada aisla y deprime."
+    "ira" -> "Protege límites; sostenida deteriora vínculos."
+    "asco" -> "Protege; mal dirigida estigmatiza."
+    "desprecio" -> "Marca frontera moral; erosiona relaciones."
+    "verguenza", "vergüenza" -> "Cuida imagen; en exceso bloquea la expresión."
+    "culpa" -> "Impulsa reparación; en exceso paraliza."
+    "miedo" -> "Previene riesgos; cronificado limita la libertad."
+    else -> "Útil con medida; cronicidad la vuelve desadaptativa."
 }
 
-/** Consumir la marca de 'abrir Emociones' (true una sola vez) */
-fun consumePendingOpenEmotion(context: Context): Boolean {
-    val prefs = context.getSharedPreferences(PREFS_PREFILL, Context.MODE_PRIVATE)
-    val pending = prefs.getBoolean(KEY_PREFILL_PENDING_OPEN, false)
-    if (pending) prefs.edit().putBoolean(KEY_PREFILL_PENDING_OPEN, false).apply()
-    return pending
+/* ====== Frases clave (3 por emoción) ====== */
+fun getKeyPhrases(key: String): List<String> = when (sanitizeEmotionKey(key)) {
+    "miedo" -> listOf("¿Y si sale mal?", "No estoy seguro de poder", "Mejor evitarlo")
+    "ira" -> listOf("¡Esto no es justo!", "No me respetan", "Hasta aquí")
+    "vergüenza", "verguenza" -> listOf("Van a pensar mal de mí", "Me he quedado en ridículo", "Ojalá no me miren")
+    "desprecio" -> listOf("No merece la pena", "Yo no soy como ellos", "Qué poco nivel")
+    "asco" -> listOf("Qué repulsión", "Aléjalo de mí", "Esto contamina")
+    "culpa" -> listOf("La he liado", "Tengo que repararlo", "No debí hacerlo")
+    "sufrimiento", "tristeza", "angustia", "distress" -> listOf("Esto pesa demasiado", "Necesito apoyo", "No tengo fuerzas")
+    "interes" -> listOf("¿Cómo funciona?", "Quiero entenderlo", "Voy a probar")
+    "sorpresa" -> listOf("¡No me lo esperaba!", "¿Qué ha pasado?", "Toca reaccionar")
+    "alegria" -> listOf("Qué bien se está", "Quiero compartirlo", "Ojalá dure")
+    else -> listOf("Esto me señala algo", "Voy a observar", "¿Qué necesito ahora?")
 }
 
-/** Guardar una emoción usando el mismo 'baseName' del audio y borrar el origen. */
-fun saveEmotionEntryUsingAudioBase(context: Context, entry: EmotionEntry, audioBaseName: String): File {
-    // Derivamos base e_<...> a partir de a_<...>
-    val base = (if (audioBaseName.startsWith("a_")) "e_" + audioBaseName.substring(2) else "e_$audioBaseName")
-        .removeSuffix(".m4a").removeSuffix(".json")
-    val out = File(entriesDir(context), "$base.json")
-
-    val gson = Gson()
-    val tree = JsonParser.parseString(gson.toJson(entry)).asJsonObject
-    val sensations = splitNotesToSensations(tree.get("notes")?.asString)
-    tree.add("sensations", gson.toJsonTree(sensations))
-    out.writeText(gson.toJson(tree))
-
-    // Borrar archivos de audio origen (si existen)
-    val audioRoot = audioBaseName.removeSuffix(".m4a").removeSuffix(".json")
-    File(entriesDir(context), "$audioRoot.m4a").delete()
-    File(entriesDir(context), "$audioRoot.json").delete()
-
-    return out
+/* ====== Sensaciones corporales por emoción (3) ====== */
+fun getDefaultBodySensations(key: String): List<String> = when (sanitizeEmotionKey(key)) {
+    "miedo" -> listOf("Nudo en el estómago", "Tensión en el pecho", "Respiración acelerada")
+    "ira" -> listOf("Calor en la cara", "Mandíbula apretada", "Puños tensos")
+    "vergüenza", "verguenza" -> listOf("Rubor facial", "Mirada hacia abajo", "Encogimiento corporal")
+    "desprecio" -> listOf("Ceja levantada", "Cuerpo echado atrás", "Labio superior tenso")
+    "asco" -> listOf("Náusea", "Gesto de retraimiento", "Repulsión en la boca")
+    "culpa" -> listOf("Opresión en el pecho", "Baja energía", "Mirada esquiva")
+    "sufrimiento", "tristeza", "angustia", "distress" -> listOf("Nudo en la garganta", "Pesadez corporal", "Lagrimeo")
+    "interes" -> listOf("Ojos abiertos", "Inclinación hacia delante", "Energía suave")
+    "sorpresa" -> listOf("Sobresalto", "Ojos muy abiertos", "Boca abierta")
+    "alegria" -> listOf("Ligereza en el pecho", "Sonrisa espontánea", "Energía alta")
+    else -> listOf("Cambio en la respiración", "Tono muscular distinto", "Postura alterada")
 }
+
+fun getBodySensations(context: Context, key: String): List<String> =
+    getUserEmotionSensations(context, key) ?: getDefaultBodySensations(key)

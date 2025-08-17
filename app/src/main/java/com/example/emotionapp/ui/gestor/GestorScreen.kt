@@ -402,7 +402,8 @@ private fun RestoreDialog(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     zips.forEach { f ->
-                        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(f.lastModified()))
+                        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(f.lastModified))
+
                         OutlinedButton(onClick = {
                             val ok = runCatching { importEntriesFromLocalZip(context, f) }.isSuccess
                             if (ok) onImported() else Toast.makeText(context, "Error al recuperar.", Toast.LENGTH_SHORT).show()
