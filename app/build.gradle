@@ -15,6 +15,45 @@ android {
         versionName "1.0"
     }
 
+    // ==== FIRMAS ====
+    // OJO: un solo bloque signingConfigs. No anidar ni duplicar.
+    signingConfigs {
+  dev {
+    def f = project.findProperty('MYAPP_DEV_STORE_FILE') ?: 'keystore/emotionapp-dev.jks'
+    storeFile     rootProject.file(f)
+    storePassword project.findProperty('MYAPP_DEV_STORE_PASSWORD') ?: ''
+    keyAlias      project.findProperty('MYAPP_DEV_KEY_ALIAS') ?: ''
+    keyPassword   project.findProperty('MYAPP_DEV_KEY_PASSWORD') ?: ''
+    enableV1Signing true
+    enableV2Signing true
+  }
+  prod {
+    def f = project.findProperty('MYAPP_PROD_STORE_FILE') ?: 'keystore/emotionapp-prod-20250827c.p12'
+    storeFile     rootProject.file(f)
+    storeType     'pkcs12'
+    storePassword project.findProperty('MYAPP_PROD_STORE_PASSWORD') ?: ''
+    keyAlias      project.findProperty('MYAPP_PROD_KEY_ALIAS') ?: 'emotionapp'
+    keyPassword   (project.findProperty('MYAPP_PROD_KEY_PASSWORD') ?: project.findProperty('MYAPP_PROD_STORE_PASSWORD') ?: '')
+    enableV1Signing true
+    enableV2Signing true
+}
+
+
+}
+
+    // ==== TIPOS DE COMPILACIÓN ====
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.dev
+        }
+        release {
+            signingConfig signingConfigs.prod
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // ==== COMPOSE / KOTLIN / JAVA ====
     buildFeatures { compose true }
 
     composeOptions {
@@ -48,7 +87,6 @@ dependencies {
     implementation "com.google.android.flexbox:flexbox:3.0.0"
     debugImplementation "androidx.compose.ui:ui-tooling"
     implementation "com.google.code.gson:gson:2.10.1"
-    implementation "androidx.compose.foundation:foundation-layout" // <- necesario para FlowRow
+    implementation "androidx.compose.foundation:foundation-layout" // <- FlowRow
     implementation "androidx.core:core-ktx:1.13.1"
-
 }
