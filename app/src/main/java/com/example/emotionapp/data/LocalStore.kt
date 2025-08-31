@@ -44,8 +44,9 @@ private fun firstWordPlace(place: String?): String {
 
 data class EmotionItem(val key: String, val label: String, val intensity: Int)
 
+/** Ahora con secundarias guardadas aparte */
 data class EmotionEntry(
-    val emotions: List<EmotionItem>,
+    val emotions: List<EmotionItem>,           // PRIMARIAS con intensidad 0..5
     val generalIntensity: Int,
     val place: String,
     val people: String,
@@ -53,8 +54,10 @@ data class EmotionEntry(
     val actions: String,
     val notes: String,
     val situationFacts: String = "",
-    val topic: String = ""
+    val topic: String = "",
+    val secondaryEmotions: List<String> = emptyList()  // SECUNDARIAS (p. ej. "Vergüenza", "Culpa", etc.)
 )
+
 
 /* ================== Guardado/carga de EMOCIONES ================== */
 
@@ -441,7 +444,6 @@ fun copySummaryToClipboard(context: Context): String {
     cm.setPrimaryClip(ClipData.newPlainText("Resumen Emolog", text))
     return text
 }
-
 /* ==================== Info de emociones ==================== */
 
 private const val PREFS_EMOINFO = "emotion_info_prefs"

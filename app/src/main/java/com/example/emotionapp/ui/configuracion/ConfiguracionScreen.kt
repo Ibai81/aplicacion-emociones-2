@@ -22,6 +22,21 @@ import androidx.compose.ui.unit.dp
 import com.example.emotionapp.EmotionDef
 import com.example.emotionapp.defaultEmotionPalette
 import com.example.emotionapp.data.*
+import com.example.emotionapp.data.UiPrefs
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.collectAsState
+
+/* Color por defecto para cada emoción primaria (fallback si el usuario no personaliza) */
+private fun defaultColorForEmotion(key: String): Color = when (key.lowercase()) {
+    "miedo"     -> Color(0xFF64B5F6)
+    "ira"       -> Color(0xFFE57373)
+    "tristeza"  -> Color(0xFF90CAF9)
+    "alegria"   -> Color(0xFFFFD54F)
+    "asco"      -> Color(0xFF81C784)
+    "sorpresa"  -> Color(0xFFFFB74D)
+    else        -> Color(0xFF546E7A) // fallback neutro
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -54,36 +69,83 @@ fun ConfiguracionScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Configuración", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        // ---- Descriptores (placeholders) en vivo ----
+        val context = LocalContext.current
+        val showHints by UiPrefs.observeShowHints(context).collectAsState(initial = true)
 
+        Card {
+            Row(
+                Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Descriptores de campos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Muestra un texto guía dentro de cada cuadro hasta que escribes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = showHints, onCheckedChange = { UiPrefs.setShowHints(context, it) })
+            }
+        }
+
+        // ---- Descriptores (placeholders) ----
+        Card {
+            Row(
+                Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+        }
+
+        // ---- Color primario de la app ----
         Card {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Color primario de la app", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     appPalette.forEach { c ->
                         val sel = c == primaryColor
                         FilledTonalButton(
-                            onClick = { onColorSelected(c); Toast.makeText(context, "Color principal actualizado", Toast.LENGTH_SHORT).show() },
+                            onClick = {
+                                onColorSelected(c)
+                                Toast.makeText(context, "Color principal actualizado", Toast.LENGTH_SHORT).show()
+                            },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Box(Modifier.size(if (sel) 36.dp else 26.dp).background(c, RoundedCornerShape(8.dp)))
+                            Box(
+                                Modifier
+                                    .size(if (sel) 36.dp else 26.dp)
+                                    .background(c, RoundedCornerShape(8.dp))
+                            )
                         }
                     }
                 }
 
-                OutlinedButton(onClick = { onResetAll(); Toast.makeText(context, "Colores de emociones restablecidos", Toast.LENGTH_SHORT).show() }) {
-                    Text("Restablecer colores de emociones")
-                }
+                OutlinedButton(
+                    onClick = {
+                        onResetAll()
+                        Toast.makeText(context, "Colores de emociones restablecidos", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("Restablecer colores de emociones") }
             }
         }
 
+        // ---- Colores por emoción ----
         Card {
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Colores por emoción", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     defaultEmotionPalette.forEach { def: EmotionDef ->
-                        val current = emotionColors[def.key] ?: def.color
+                        val current = emotionColors[def.key] ?: defaultColorForEmotion(def.key)
                         var expanded by remember(def.key) { mutableStateOf(false) }
                         Box {
                             Button(
@@ -99,7 +161,10 @@ fun ConfiguracionScreen(
                                 emoPalette.forEach { c ->
                                     DropdownMenuItem(
                                         text = {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
                                                 Box(Modifier.size(18.dp).background(c, RoundedCornerShape(4.dp)))
                                                 Text("Cambiar a este color")
                                             }
@@ -117,18 +182,32 @@ fun ConfiguracionScreen(
                 }
             }
         }
+        }
+        // ---- Listas de sugerencias editables ----
+            SuggestionSectionCompact("Lugares", places) { updated ->
+                places = updated
+                replacePlaceSuggestions(context, updated)
+            }
+            SuggestionSectionCompact("Personas", people) { updated ->
+                people = updated
+                replacePeopleSuggestions(context, updated)
+            }
+            SuggestionSectionCompact("Sensaciones corporales", sensations) { updated ->
+                sensations = updated
+                replaceSensationsSuggestions(context, updated)
+            }
+            SuggestionSectionCompact("Temas", topics) { updated ->
+                topics = updated
+                replaceTopicSuggestions(context, updated)
+            }
 
-        SuggestionSectionCompact("Lugares", places) { places = it; replacePlaceSuggestions(context, it) }
-        SuggestionSectionCompact("Personas", people) { people = it; replacePeopleSuggestions(context, it) }
-        SuggestionSectionCompact("Sensaciones corporales", sensations) { sensations = it; replaceSensationsSuggestions(context, it) }
-        SuggestionSectionCompact("Temas", topics) { topics = it; replaceTopicSuggestions(context, it) }
-    }
+        }
 }
 
 /* ====== Sección compacta con selector táctil + eliminar ====== */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SuggestionSectionCompact(
+fun SuggestionSectionCompact(
     title: String,
     items: List<String>,
     onReplaceAll: (List<String>) -> Unit
@@ -150,15 +229,57 @@ private fun SuggestionSectionCompact(
         Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
 
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            // Chips existentes (editar / borrar con confirmación)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                list.forEach { original ->
+                    val editing = editors[original]
+                    if (editing == null) {
+                        AssistChip(
+                            onClick = {
+                                editors = editors + (original to original)
+                            },
+                            label = { Text(original) },
+                            leadingIcon = null
+                        )
+                        AssistChip(
+                            onClick = { pendingDelete = original },
+                            label = { Text("✕") }
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = editing,
+                            onValueChange = { editors = editors + (original to it) },
+                            singleLine = true,
+                            label = { Text("Editar") }
+                        )
+                        TextButton(onClick = {
+                            val newVal = editing.trim()
+                            if (newVal.isNotEmpty()) {
+                                list = list.map { if (it == original) newVal else it }
+                                editors = editors - original
+                                onReplaceAll(list)
+                                Toast.makeText(context, "Actualizado", Toast.LENGTH_SHORT).show()
+                            }
+                        }) { Text("Guardar") }
+                        TextButton(onClick = { editors = editors - original }) { Text("Cancelar") }
+                    }
+                }
+            }
+
+            // Añadir nuevo + selector múltiple
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = newItem,
                     onValueChange = { newItem = it },
-                    placeholder = { Text("Añadir $title") },
                     singleLine = true,
-                    modifier = Modifier.weight(1f, fill = false).widthIn(min = 180.dp).fillMaxWidth()
+                    label = { Text("Añadir") },
+                    modifier = Modifier.weight(1f)
                 )
-                AssistChip(onClick = {
+                Button(onClick = {
                     val v = newItem.trim()
                     if (v.isNotEmpty()) {
                         list = (listOf(v) + list).distinctBy { it.lowercase() }.take(30)
@@ -166,7 +287,8 @@ private fun SuggestionSectionCompact(
                         onReplaceAll(list)
                         Toast.makeText(context, "Añadido", Toast.LENGTH_SHORT).show()
                     }
-                }, label = { Text("Agregar") })
+                }) { Text("Agregar") }
+
                 AssistChip(onClick = { showPicker = true }, label = { Text("Seleccionar") })
             }
 
@@ -176,30 +298,30 @@ private fun SuggestionSectionCompact(
                     confirmButton = {
                         TextButton(onClick = {
                             val selected = picked.filter { it.value }.keys.toList()
-                            editors = selected.associateWith { it }
+                            if (selected.isNotEmpty()) {
+                                list = (selected + list).distinctBy { it.lowercase() }.take(30)
+                                onReplaceAll(list)
+                            }
                             showPicker = false
-                        }) { Text("Aceptar") }
+                        }) { Text("Añadir") }
                     },
-                    dismissButton = { TextButton(onClick = { showPicker = false }) { Text("Cancelar") } },
-                    title = { Text("Selecciona $title") },
+                    dismissButton = {
+                        TextButton(onClick = { showPicker = false }) { Text("Cancelar") }
+                    },
+                    title = { Text("Seleccionar de la lista") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (list.isEmpty()) Text("No hay elementos.")
                             list.forEach { s ->
-                                val selected = picked[s] == true
-                                val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                                val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                 Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(bg, RoundedCornerShape(8.dp))
-                                        .clickable { picked[s] = !selected }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(s, color = fg, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = { pendingDelete = s }) { Text("Eliminar", color = fg) }
+                                    Text(s, modifier = Modifier.weight(1f))
+                                    Checkbox(
+                                        checked = picked[s] == true,
+                                        onCheckedChange = { v -> picked[s] = v == true }
+                                    )
                                 }
                             }
                         }
@@ -207,64 +329,29 @@ private fun SuggestionSectionCompact(
                 )
             }
 
-            val toDelete = pendingDelete
-            if (toDelete != null) {
+            // Confirmación borrado
+            pendingDelete?.let { toDelete ->
                 AlertDialog(
                     onDismissRequest = { pendingDelete = null },
                     confirmButton = {
                         TextButton(onClick = {
-                            val newList = list.filterNot { it.equals(toDelete, ignoreCase = true) }
-                            list = newList
-                            onReplaceAll(newList)
-                            val newPicked = picked.toMutableMap().apply { remove(toDelete) }
-                            picked = newPicked
+                            list = list.filterNot { it.equals(toDelete, ignoreCase = true) }
+                            onReplaceAll(list)
                             pendingDelete = null
                             Toast.makeText(context, "Eliminado", Toast.LENGTH_SHORT).show()
-                        }) { Text("Eliminar") }
+                        }) { Text("Borrar") }
                     },
                     dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancelar") } },
-                    title = { Text("Eliminar elemento") },
-                    text = { Text("¿Seguro que quieres eliminar “$toDelete”?") }
+                    title = { Text("¿Eliminar?") },
+                    text = { Text(toDelete) }
                 )
-            }
-
-            // Editores: al GUARDAR, quitar de la lista de edición
-            if (editors.isNotEmpty()) {
-                val editorEntries = editors.entries.toList()
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    editorEntries.forEach { (original, textNow) ->
-                        var localText by remember(original) { mutableStateOf(textNow) }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = localText,
-                                onValueChange = { localText = it },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text(original) }
-                            )
-                            AssistChip(onClick = {
-                                val newV = localText.trim()
-                                if (newV.isNotEmpty()) {
-                                    val without = list.filterNot { it.equals(original, ignoreCase = true) }
-                                    val newList = (listOf(newV) + without).distinctBy { it.lowercase() }.take(30)
-                                    list = newList
-                                    onReplaceAll(newList)
-                                    // quitar de la lista de edición
-                                    val newEditors = editors.toMutableMap()
-                                    newEditors.remove(original)
-                                    editors = newEditors
-                                    Toast.makeText(context, "Guardado", Toast.LENGTH_SHORT).show()
-                                }
-                            }, label = { Text("Guardar") })
-                        }
-                    }
-                }
             }
         }
     }
 }
 
-/* Compat SettingsScreen */
+
+/* Compat SettingsScreen (si la usabas en otra parte) */
 @Composable
 fun SettingsScreen(
     primaryColor: Color,
@@ -282,3 +369,4 @@ fun SettingsScreen(
         onResetAll = onResetAll
     )
 }
+

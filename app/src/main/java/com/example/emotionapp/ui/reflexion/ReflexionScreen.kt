@@ -35,6 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import com.example.emotionapp.data.UiPrefs
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+
 
 /**
  * Pantalla de reflexión en texto.
@@ -43,9 +47,13 @@ import kotlinx.coroutines.launch
  * - Guarda como EmotionEntry (paquete data) con momentType="reflexion", captureMode="texto".
  */
 @Composable
+
 fun ReflexionScreen() {
     val context = LocalContext.current
+    val showHints by UiPrefs.observeShowHints(context).collectAsState(initial = true)
     val scope = rememberCoroutineScope()
+
+
 
     // ⚠️ TextFieldValue con Saver para evitar crashes al rotar/recuperar
     var reflexion by rememberSaveable(stateSaver = TextFieldValue.Saver) {
@@ -100,22 +108,23 @@ fun ReflexionScreen() {
 
         OutlinedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Lugar
                 OutlinedTextField(
-                    value = place,
-                    onValueChange = { place = it },
-                    label = { Text("Lugar (opcional)") },
-                    singleLine = true,
+                    value = place, onValueChange = { place = it },
+                    label = { Text("Lugar (opcional)") }, singleLine = true,
+                    placeholder = { if (showHints) Text("Ej.: casa, parque…") },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+// Reflexión
                 OutlinedTextField(
-                    value = reflexion,
-                    onValueChange = { reflexion = it },
-                    label = { Text("Reflexión") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    maxLines = 12
+                    value = reflexion, onValueChange = { reflexion = it },
+                    label = { Text("Reflexión") }, maxLines = 12,
+                    placeholder = { if (showHints) Text("Escribe tu reflexión libre") },
+                    modifier = Modifier.fillMaxWidth().height(200.dp)
                 )
+
+
             }
         }
 

@@ -22,6 +22,13 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.emotionapp.data.UiPrefs
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.compose.runtime.collectAsState
+
+
 
 // Backup / restore / copy helpers
 import com.example.emotionapp.data.listLocalBackups
@@ -31,7 +38,8 @@ import com.example.emotionapp.data.copySummaryToClipboardFor
 
 @Composable
 fun GestorScreen() {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
+    val showHints by UiPrefs.observeShowHints(context).collectAsState(initial = true)
 
     // -------- Reproductor global (evitar solapes) --------
     var playingBase by remember { mutableStateOf<String?>(null) }
@@ -85,9 +93,11 @@ fun GestorScreen() {
             value = query,
             onValueChange = { query = it },
             singleLine = true,
+            placeholder = { if (showHints) Text("Filtra por fecha, lugar, tema, personas…") },
             label = { Text("Buscar (fecha, lugar, tema, personas, notas)") },
             modifier = Modifier.fillMaxWidth()
         )
+
 
         // ===== Acciones globales (2 filas x 2 botones) =====
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

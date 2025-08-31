@@ -31,3 +31,14 @@ Thumbs.db
 *.jks
 *.p12
 keystore-*.properties
+.idea/
+.gradle/
+**/build/
+local.properties
+*.iml
+captures/
+.DS_Store
+# Keystores y credenciales
+*.jks
+*.keystore
+keystore.properties

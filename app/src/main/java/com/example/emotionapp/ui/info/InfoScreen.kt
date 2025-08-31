@@ -28,10 +28,11 @@ fun InfoScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            "Información emocional",
+            "Primarias",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold
         )
+
 
         defaultEmotionPalette.forEach { def: EmotionDef ->
             EmotionInfoCard(

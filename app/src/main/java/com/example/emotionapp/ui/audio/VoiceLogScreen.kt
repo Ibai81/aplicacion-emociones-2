@@ -10,8 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,23 +31,29 @@ import com.example.emotionapp.data.addPlaceSuggestion
 import com.example.emotionapp.data.loadPlaceSuggestions
 import com.example.emotionapp.data.saveAudioEntryFiles
 import java.io.File
+import com.example.emotionapp.data.UiPrefs
+import androidx.compose.runtime.collectAsState
+
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun VoiceLogScreen() {
     val context = LocalContext.current
+    val showHints by UiPrefs.observeShowHints(context).collectAsState(initial = true)
+
 
     var audioUri by rememberSaveable { mutableStateOf<Uri?>(null) }
     var place by remember { mutableStateOf(TextFieldValue("")) }
     var description by remember { mutableStateOf(TextFieldValue("")) }
     var generalIntensity by remember { mutableStateOf(3) }
 
-    // Si tu clase del motor se llama distinto, cámbiala aquí.
+    // Motor de grabación (RecorderEngine.kt)
     val engine = remember { AudioRecorderEngine(context) }
     var isRecording by remember { mutableStateOf(false) }
 
-    // Sensibilidad / refuerzo
-    var boostDb by remember { mutableStateOf(9) } // 0 / +6 / +9 / +12 / +18
+    // Refuerzo SOLO +9 / +18 dB
+    var boostDb by remember { mutableStateOf(9) }
     var currentOutputFile by remember { mutableStateOf<File?>(null) }
 
     val scroll = rememberScrollState()
@@ -84,61 +90,69 @@ fun VoiceLogScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scroll) // 👈 asegura scroll
+            .verticalScroll(scroll)
             .imePadding()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Registro de audio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text("Registro rápido de voz", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        // Controles de grabación + guardar
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
-                    if (isRecording) {
-                        Toast.makeText(context, "Detén la grabación antes de guardar.", Toast.LENGTH_SHORT).show(); return@Button
-                    }
-                    val src = audioUri ?: run {
-                        Toast.makeText(context, "Aún no hay audio. Graba primero.", Toast.LENGTH_SHORT).show(); return@Button
-                    }
-                    val lugar = place.text.ifBlank { "sin lugar" }
-                    runCatching {
+                    if (!isRecording) {
+                        if (hasMicPermission()) startRecording() else requestMicPermission.launch(micPermission)
+                    } else stopRecording()
+                }
+            ) { Text(if (isRecording) "Detener" else "Grabar") }
+
+            Button(
+                enabled = audioUri != null && !isRecording,
+                onClick = {
+                    val u = audioUri ?: return@Button
+                    try {
                         saveAudioEntryFiles(
                             context = context,
-                            source = src,
+                            source = u,
                             description = description.text,
                             generalIntensity = generalIntensity,
-                            place = lugar
+                            place = place.text
                         )
-                    }.onSuccess {
-                        addPlaceSuggestion(context, lugar)
+                        runCatching { currentOutputFile?.delete(); currentOutputFile = null }
+                        addPlaceSuggestion(context, place.text)
                         placeSugg = loadPlaceSuggestions(context)
-                        Toast.makeText(context, "Audio guardado en gestor.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Audio guardado.", Toast.LENGTH_SHORT).show()
                         audioUri = null
-                        place = TextFieldValue("")
                         description = TextFieldValue("")
+                        place = TextFieldValue("")
                         generalIntensity = 3
-                        currentOutputFile = null
-                    }.onFailure {
-                        Toast.makeText(context, "Error al guardar: ${it.message}", Toast.LENGTH_LONG).show()
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "Error al guardar.", Toast.LENGTH_SHORT).show()
                     }
-                },
-                enabled = !isRecording && audioUri != null
-            ) { Text("Guardar") }
-
-            Button(onClick = {
-                if (isRecording) stopRecording()
-                else if (hasMicPermission()) startRecording()
-                else requestMicPermission.launch(micPermission)
-            }) { Text(if (isRecording) "Detener" else "Grabar audio") }
+                }
+            ) { Text("Guardar registro") }
         }
 
+        // Botón DESCARTAR abajo (ancho completo)
+        OutlinedButton(
+            enabled = audioUri != null && !isRecording,
+            onClick = {
+                runCatching { currentOutputFile?.delete(); currentOutputFile = null }
+                audioUri = null
+                Toast.makeText(context, "Descartado.", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Descartar") }
+
+        // Refuerzo de grabación: SOLO +9 / +18 dB
         Text("Refuerzo grabación:")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(0, 6, 9, 12, 18).forEach { db ->
+            listOf(9, 18).forEach { db ->
                 FilterChip(
                     selected = boostDb == db,
                     onClick = { if (!isRecording) boostDb = db },
-                    label = { Text(if (db == 0) "0 dB" else "+$db dB") },
+                    label = { Text("+$db dB") },         // <- sin símbolo $ sobrante
                     enabled = !isRecording
                 )
             }
@@ -149,36 +163,42 @@ fun VoiceLogScreen() {
             MiniPlayer(source = audioUri!!)
         }
 
+        // Lugar
         OutlinedTextField(
             value = place, onValueChange = { place = it },
             label = { Text("Lugar") }, singleLine = true,
+            placeholder = { if (showHints) Text("Ej.: bar, casa, trabajo…") },
             modifier = Modifier.fillMaxWidth()
         )
-
-        val typed = place.text.trim()
-        val visible = placeSugg
-            .filter { it.isNotBlank() }
-            .filter { typed.isEmpty() || it.contains(typed, ignoreCase = true) }
-            .take(12)
-        if (visible.isNotEmpty()) {
-            Text("Sugerencias de lugares", style = MaterialTheme.typography.labelLarge)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                visible.forEach { s ->
-                    AssistChip(onClick = { place = TextFieldValue(s) }, label = { Text(s) })
+        run {
+            val typed = place.text.trim()
+            val visible = placeSugg
+                .filter { it.isNotBlank() }
+                .filter { typed.isEmpty() || it.contains(typed, ignoreCase = true) }
+                .take(12)
+            if (visible.isNotEmpty()) {
+                Text("Sugerencias de lugares", style = MaterialTheme.typography.labelLarge)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    visible.forEach { s ->
+                        AssistChip(onClick = { place = TextFieldValue(s) }, label = { Text(s) })
+                    }
                 }
             }
         }
 
+        // Descripción
         OutlinedTextField(
             value = description, onValueChange = { description = it },
             label = { Text("Descripción (opcional)") }, minLines = 3,
+            placeholder = { if (showHints) Text("¿Qué se oye? ¿Qué pasó?") },
             modifier = Modifier.fillMaxWidth()
         )
 
+        // Intensidad general
         Text("Intensidad general", style = MaterialTheme.typography.titleMedium)
         NumberPickerRow(selected = generalIntensity) { picked -> generalIntensity = picked }
     }
@@ -255,7 +275,7 @@ private fun NumberPickerRow(selected: Int, onPick: (Int) -> Unit) {
                     .background(bg, RoundedCornerShape(10.dp))
                     .clickable { onPick(n) },
                 contentAlignment = Alignment.Center
-            ) { Text("$n", color = fg, fontWeight = FontWeight.Bold) }
+            ) { Text("$n", color = fg, fontWeight = FontWeight.Bold) } // <- sin ${'$'}n
         }
     }
 }
